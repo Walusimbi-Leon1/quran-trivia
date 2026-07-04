@@ -1,0 +1,12 @@
+{
+  "name": "bible-game-telegram",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bible Game Telegram bot",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "telegraf": "^4.16.3"
+  }
+}
