@@ -5,6 +5,7 @@ A multiplayer Bible verse guessing game. Players see a verse from the **SGSS Bib
 Play on **Discord**, **Telegram**, or directly in your **browser** — all using the same Firebase-backed game engine.
 
 **[🌐 Play Now → https://bible-game-4mh.pages.dev](https://bible-game-4mh.pages.dev)**
+**[✈️ Telegram Bot: @bible_game_21_bot](https://t.me/bible_game_21_bot)**
 
 ---
 
@@ -131,12 +132,25 @@ export GUILD_ID="your-guild-id"
 
 1. Create a bot via [@BotFather](https://t.me/BotFather)
 2. Copy the token
-3. Run:
-```bash
-export TELEGRAM_TOKEN="your-bot-token"
-export FIREBASE_SA='{"type":"service_account",...}'
-npm run telegram
-```
+3. Set the secret:
+   ```bash
+   cd telegram-worker
+   npx wrangler secret put TELEGRAM_TOKEN
+   ```
+4. Deploy:
+   ```bash
+   cd telegram-worker
+   npx wrangler deploy
+   ```
+5. Set the webhook:
+   ```bash
+   curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://bible-game-telegram.YOUR-SUBDOMAIN.workers.dev/api/webhook"}'
+   ```
+
+The bot runs as a **Cloudflare Worker** at `https://bible-game-telegram.walusimbileon2.workers.dev`.
+Uses Firebase RTDB REST API (no Node.js dependency needed).
 
 ---
 
@@ -157,8 +171,11 @@ bible-game/
 │   ├── package.json         # Discord bot dependencies
 │   └── index.js             # Discord bot
 ├── telegram/
-│   ├── package.json         # Telegram bot dependencies
-│   └── index.js             # Telegram bot
+│   ├── package.json         # Telegram bot dependencies (Node.js)
+│   └── index.js             # Telegram bot (Node.js — legacy)
+├── telegram-worker/
+│   ├── wrangler.toml        # Cloudflare Worker config
+│   └── index.js             # Telegram bot (Cloudflare Worker — live)
 ├── scripts/
 │   ├── seed-firebase.js     # Seed Firebase RTDB with verses
 │   └── import-verses.js     # Import SGSS Bible from text format
