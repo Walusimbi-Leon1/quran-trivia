@@ -4,6 +4,8 @@ A multiplayer Bible verse guessing game. Players see a verse from the **SGSS Bib
 
 Play on **Discord**, **Telegram**, or directly in your **browser** — all using the same Firebase-backed game engine.
 
+**[🌐 Play Now → https://bible-game-4mh.pages.dev](https://bible-game-4mh.pages.dev)**
+
 ---
 
 ## 🎮 How It Works

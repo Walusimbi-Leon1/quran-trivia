@@ -1,4 +1,4 @@
-name: Deploy Web App
+name: Deploy Web App to Cloudflare Pages
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
     paths:
       - 'web/**'
       - 'verse-data/**'
+      - 'wrangler.toml'
 
 jobs:
   deploy:
@@ -13,9 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./web
-          destination_dir: ./
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web/ --project-name bible-game --branch main

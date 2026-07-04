@@ -7,9 +7,13 @@
     "web": "npx serve web/ -p 4000",
     "discord": "node discord/index.js",
     "telegram": "node telegram/index.js",
-    "seed": "node scripts/seed-firebase.js"
+    "seed": "node scripts/seed-firebase.js",
+    "deploy": "npx wrangler pages deploy web/ --project-name bible-game --branch main"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
   }
 }
