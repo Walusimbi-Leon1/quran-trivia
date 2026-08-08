@@ -1,10 +1,10 @@
 /**
- * Bible Trivia 📖 — client
+ * Quran Trivia 🕌 — client
  *
  * Single GLOBAL room. Every player sees the same question at the same time:
  *   slot = floor((now - game.questionStart) / slotDuration)
  *   question = bank[slot % bank.length]
- * Questions rotate continuously (20s each), generated from the SGSS Bible by
+ * Questions rotate continuously (20s each), generated from the SGSS Quran by
  * opencode.ai big-pickle via the GitHub Actions pipeline. Speed-based scoring:
  * first correct answer in a slot scores highest. Players + scores persist in
  * Firebase — leaving never deletes them.
@@ -106,7 +106,7 @@ function currentQuestion() {
 }
 
 // ── Firebase paths ──────────────────────────────────────────────────────────
-const P = "bible/global";
+const P = "quran/global";
 
 // ── Realtime sync (robust polling) ─────────────────────────────────────────
 // NOTE: Firebase SSE through the Cloudflare Worker proxy freezes after the
@@ -338,7 +338,7 @@ function renderQuestion(q) {
 
   $("q-text").textContent = question.question;
 
-  // Bible reference (SGSS-sourced questions carry a ref, e.g. "John 3:16")
+  // Quran reference (SGSS-sourced questions carry a ref, e.g. "Al-Baqara 2:255")
   const refEl = $("q-ref");
   if (refEl) {
     if (question.ref) {

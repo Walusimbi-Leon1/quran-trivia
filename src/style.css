@@ -1,13 +1,13 @@
-/* Bible Trivia — theme: parchment gold on deep scripture blue */
+/* Quran Trivia — theme: emerald & gold on deep night blue */
 
 :root {
-  --bg: #0d1226;
-  --bg-2: #131a33;
-  --card: #182142;
-  --card-2: #1f2a52;
-  --border: #2b3768;
+  --bg: #081c14;
+  --bg-2: #0e2a1e;
+  --card: #122b20;
+  --card-2: #183829;
+  --border: #1f4a35;
   --text: #eef1fb;
-  --muted: #9aa6cc;
+  --muted: #93b8a8;
   --gold: #e8c468;
   --gold-2: #c9a24b;
   --green: #3ecf8e;
@@ -20,7 +20,7 @@
 
 html, body {
   height: 100%;
-  background: radial-gradient(1200px 600px at 50% -10%, #1b2752 0%, var(--bg) 55%) fixed, var(--bg);
+  background: radial-gradient(1200px 600px at 50% -10%, #0f4a2e 0%, var(--bg) 55%) fixed, var(--bg);
   color: var(--text);
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;

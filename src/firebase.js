@@ -1,5 +1,5 @@
 /**
- * Bible Trivia — data layer (Firebase Realtime Database)
+ * Quran Trivia — data layer (Firebase Realtime Database)
  *
  * Proven pattern from Trivia Rumble Elite / Dice Arena: ALL traffic goes
  * through the same-origin /firebase proxy on our worker, because Discord's
@@ -8,7 +8,7 @@
  *  - Realtime streaming → /firebase/stream/<path>.json (SSE)
  * No Firebase SDK needed. Works identically in Discord and in browsers.
  *
- * Namespace: bible/global  (shared RTDB, isolated from other games)
+ * Namespace: quran/global  (shared RTDB, isolated from other games)
  */
 
 const FB = "/firebase";

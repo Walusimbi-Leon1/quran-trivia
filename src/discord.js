@@ -1,5 +1,5 @@
 /**
- * Bible Trivia — Discord SDK integration
+ * Quran Trivia — Discord SDK integration
  *
  * Proven pattern from Arrow Blast / Trivia Rumble Elite (2026-08-06), which
  * runs smoothly in Discord:
@@ -18,7 +18,7 @@ import { DiscordSDK } from "./vendor/discord-sdk.mjs";
 // Discord Application Client ID — Discord injects ?client_id= into the
 // Activity iframe URL, so the URL param wins. This constant is the
 // fallback for direct links.
-const CLIENT_ID = "1535538505961447434";
+const CLIENT_ID = "1535569391931101224";
 
 export let discordSdk = null;
 export let isDiscord = false;

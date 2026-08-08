@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Bible Trivia — build script
+ * Quran Trivia — build script
  * Inlines all client assets (src/* + vendored Discord SDK) into
  * dist/worker.js as a STATIC map, ready for Cloudflare Workers deploy.
  *

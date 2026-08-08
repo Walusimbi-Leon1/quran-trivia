@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 /**
- * Bible Trivia — batch question generator (GitHub Actions)
+ * Quran Trivia — batch question generator (GitHub Actions)
  *
- * Generates fresh Bible trivia questions with opencode.ai (big-pickle) and
+ * Generates fresh Quran trivia questions with opencode.ai (big-pickle) and
  * writes them straight into the Firebase Realtime Database bank that the
  * game worker reads. Runs on a schedule (every 30 min) so the game never
  * runs out of questions.
  *
- * SOURCING: every question is based on the SGSS Bible — the simplified
- * easy-English KJV adaptation at https://github.com/Walusimbi-Leon1/sgss-bible
- * Each batch fetches random chapters straight from that repo (raw HTML),
+ * SOURCING: every question is based on the SGSS Quran — the simplified
+ * easy-English presentation of the Sahih International translation at
+ * https://github.com/Walusimbi-Leon1/sgss-quran
+ * Each batch fetches random surahs straight from that repo (raw HTML),
  * extracts the verse text, and feeds it to the model as the source passage.
- * The model is instructed to answer ONLY from the passage + the Bible book
- * it came from, and to tag every question with its reference (book c:v).
+ * The model is instructed to answer ONLY from the passage + the surah it
+ * came from, and to tag every question with its reference (surah:ayah).
  *
  * Why not generate in the worker? The worker's per-request generation gets
  * throttled/truncated (big-pickle is a reasoning model — it spends thousands
@@ -51,31 +52,128 @@ const API_TIMEOUT_MS = 240000;
 const BASE_URL = process.env.OPENCODE_BASE_URL || "https://opencode.ai/zen/v1";
 const MODEL = process.env.MODEL || "big-pickle";
 const FB_HOST = (process.env.FB_HOST || "bible-game-21-default-rtdb.firebaseio.com").replace(/^https?:\/\//, "");
-const P = "bible/global"; // RTDB namespace path
+const P = "quran/global"; // RTDB namespace path
 
-const SGSS_RAW = "https://raw.githubusercontent.com/Walusimbi-Leon1/sgss-bible/main/books";
+const SGSS_RAW = "https://raw.githubusercontent.com/Walusimbi-Leon1/sgss-quran/main/books";
 
-// The 66 books of the SGSS Bible, with their repo filenames.
-// Psalms is long (150 chapters) and Revelation is poetic, but every book is
-// fair game — uniform random selection keeps the whole Bible in rotation.
+// The 114 surahs of the SGSS Quran, with their repo filenames.
+// Al-Baqara is long (286 ayahs) but every surah is fair game — uniform
+// random selection keeps the whole Quran in rotation.
 const BOOKS = [
-  "01-Genesis.html", "02-Exodus.html", "03-Leviticus.html", "04-Numbers.html",
-  "05-Deuteronomy.html", "06-Joshua.html", "07-Judges.html", "08-Ruth.html",
-  "09-1Samuel.html", "10-2Samuel.html", "11-1Kings.html", "12-2Kings.html",
-  "13-1Chronicles.html", "14-2Chronicles.html", "15-Ezra.html", "16-Nehemiah.html",
-  "17-Esther.html", "18-Job.html", "19-Psalms.html", "20-Proverbs.html",
-  "21-Ecclesiastes.html", "22-SongOfSolomon.html", "23-Isaiah.html", "24-Jeremiah.html",
-  "25-Lamentations.html", "26-Ezekiel.html", "27-Daniel.html", "28-Hosea.html",
-  "29-Joel.html", "30-Amos.html", "31-Obadiah.html", "32-Jonah.html",
-  "33-Micah.html", "34-Nahum.html", "35-Habakkuk.html", "36-Zephaniah.html",
-  "37-Haggai.html", "38-Zechariah.html", "39-Malachi.html", "40-Matthew.html",
-  "41-Mark.html", "42-Luke.html", "43-John.html", "44-Acts.html",
-  "45-Romans.html", "46-1Corinthians.html", "47-2Corinthians.html", "48-Galatians.html",
-  "49-Ephesians.html", "50-Philippians.html", "51-Colossians.html", "52-1Thessalonians.html",
-  "53-2Thessalonians.html", "54-1Timothy.html", "55-2Timothy.html", "56-Titus.html",
-  "57-Philemon.html", "58-Hebrews.html", "59-James.html", "60-1Peter.html",
-  "61-2Peter.html", "62-1John.html", "63-2John.html", "64-3John.html",
-  "65-Jude.html", "66-Revelation.html",
+  "01-Al-Faatiha.html",
+  "02-Al-Baqara.html",
+  "03-Aal-i-Imraan.html",
+  "04-An-Nisaa.html",
+  "05-Al-Maaida.html",
+  "06-Al-Anaam.html",
+  "07-Al-Araaf.html",
+  "08-Al-Anfaal.html",
+  "09-At-Tawba.html",
+  "10-Yunus.html",
+  "11-Hud.html",
+  "12-Yusuf.html",
+  "13-Ar-Rad.html",
+  "14-Ibrahim.html",
+  "15-Al-Hijr.html",
+  "16-An-Nahl.html",
+  "17-Al-Israa.html",
+  "18-Al-Kahf.html",
+  "19-Maryam.html",
+  "20-Taa-Haa.html",
+  "21-Al-Anbiyaa.html",
+  "22-Al-Hajj.html",
+  "23-Al-Muminoon.html",
+  "24-An-Noor.html",
+  "25-Al-Furqaan.html",
+  "26-Ash-Shuaraa.html",
+  "27-An-Naml.html",
+  "28-Al-Qasas.html",
+  "29-Al-Ankaboot.html",
+  "30-Ar-Room.html",
+  "31-Luqman.html",
+  "32-As-Sajda.html",
+  "33-Al-Ahzaab.html",
+  "34-Saba.html",
+  "35-Faatir.html",
+  "36-Yaseen.html",
+  "37-As-Saaffaat.html",
+  "38-Saad.html",
+  "39-Az-Zumar.html",
+  "40-Ghafir.html",
+  "41-Fussilat.html",
+  "42-Ash-Shura.html",
+  "43-Az-Zukhruf.html",
+  "44-Ad-Dukhaan.html",
+  "45-Al-Jaathiya.html",
+  "46-Al-Ahqaf.html",
+  "47-Muhammad.html",
+  "48-Al-Fath.html",
+  "49-Al-Hujuraat.html",
+  "50-Qaaf.html",
+  "51-Adh-Dhaariyat.html",
+  "52-At-Tur.html",
+  "53-An-Najm.html",
+  "54-Al-Qamar.html",
+  "55-Ar-Rahmaan.html",
+  "56-Al-Waaqia.html",
+  "57-Al-Hadid.html",
+  "58-Al-Mujaadila.html",
+  "59-Al-Hashr.html",
+  "60-Al-Mumtahana.html",
+  "61-As-Saff.html",
+  "62-Al-Jumua.html",
+  "63-Al-Munaafiqoon.html",
+  "64-At-Taghaabun.html",
+  "65-At-Talaaq.html",
+  "66-At-Tahrim.html",
+  "67-Al-Mulk.html",
+  "68-Al-Qalam.html",
+  "69-Al-Haaqqa.html",
+  "70-Al-Maaarij.html",
+  "71-Nooh.html",
+  "72-Al-Jinn.html",
+  "73-Al-Muzzammil.html",
+  "74-Al-Muddaththir.html",
+  "75-Al-Qiyaama.html",
+  "76-Al-Insaan.html",
+  "77-Al-Mursalaat.html",
+  "78-An-Naba.html",
+  "79-An-Naaziaat.html",
+  "80-Abasa.html",
+  "81-At-Takwir.html",
+  "82-Al-Infitaar.html",
+  "83-Al-Mutaffifin.html",
+  "84-Al-Inshiqaaq.html",
+  "85-Al-Burooj.html",
+  "86-At-Taariq.html",
+  "87-Al-Alaa.html",
+  "88-Al-Ghaashiya.html",
+  "89-Al-Fajr.html",
+  "90-Al-Balad.html",
+  "91-Ash-Shams.html",
+  "92-Al-Lail.html",
+  "93-Ad-Dhuhaa.html",
+  "94-Ash-Sharh.html",
+  "95-At-Tin.html",
+  "96-Al-Alaq.html",
+  "97-Al-Qadr.html",
+  "98-Al-Bayyina.html",
+  "99-Az-Zalzala.html",
+  "100-Al-Aadiyaat.html",
+  "101-Al-Qaaria.html",
+  "102-At-Takaathur.html",
+  "103-Al-Asr.html",
+  "104-Al-Humaza.html",
+  "105-Al-Fil.html",
+  "106-Quraish.html",
+  "107-Al-Maaun.html",
+  "108-Al-Kawthar.html",
+  "109-Al-Kaafiroon.html",
+  "110-An-Nasr.html",
+  "111-Al-Masad.html",
+  "112-Al-Ikhlaas.html",
+  "113-Al-Falaq.html",
+  "114-An-Naas.html",
 ];
 
 const API_KEY = process.env.OPENCODE_API_KEY;
@@ -120,8 +218,8 @@ async function fbDelete(path) {
   if (!res.ok) throw new Error(`fbDelete ${path} → ${res.status}`);
 }
 
-// ── SGSS Bible sourcing ─────────────────────────────────────────────────────
-// Books are single HTML files: <div class="chapter"><h2>Chapter N</h2>
+// ── SGSS Quran sourcing ─────────────────────────────────────────────────────
+// Surahs are single HTML files: <div class="chapter"><h2>Surah N</h2>
 // <p class="verse"><span class="vnum">V</span> verse text</p>…
 function decodeEntities(s) {
   return s
@@ -136,12 +234,12 @@ function decodeEntities(s) {
 function parseBook(html, fileName) {
   const titleMatch = fileName.match(/^\d+-([^.]+)\.html$/);
   const bookName = (titleMatch ? titleMatch[1] : fileName)
-    .replace(/([a-z])([A-Z])/g, "$1 $2") // 1Samuel → 1 Samuel, SongOfSolomon → Song Of Solomon
+    .replace(/([a-z])([A-Z])/g, "$1 $2") // AlFaatiha → Al Faatiha
     .replace(/(\d)([A-Za-z])/g, "$1 $2"); // 1Samuel → 1 Samuel (no space variant)
   const chapters = [];
   const chapterBlocks = html.split('<div class="chapter">');
   for (const block of chapterBlocks.slice(1)) {
-    const chMatch = block.match(/<h2>Chapter\s+(\d+)<\/h2>/i);
+    const chMatch = block.match(/<h2>Surah\s+(\d+)<\/h2>/i);
     if (!chMatch) continue;
     const verses = [];
     const verseRe = /<p class="verse"><span class="vnum">(\d+)<\/span>([\s\S]*?)<\/p>/g;
@@ -156,25 +254,25 @@ function parseBook(html, fileName) {
 }
 
 /**
- * Fetch a random chapter from a random book of the SGSS Bible.
+ * Fetch a random surah from the SGSS Quran.
  * Returns { book, chapter, verses: [{v, text}] } or null on failure.
  */
 async function fetchRandomChapter() {
   const file = BOOKS[Math.floor(Math.random() * BOOKS.length)];
   const res = await fetch(`${SGSS_RAW}/${file}`, { signal: AbortSignal.timeout(30000) });
-  if (!res.ok) throw new Error(`sgss-bible fetch ${file} → ${res.status}`);
+  if (!res.ok) throw new Error(`sgss-quran fetch ${file} → ${res.status}`);
   const html = await res.text();
   const { bookName, chapters } = parseBook(html, file);
   if (!chapters.length) throw new Error(`no chapters parsed from ${file}`);
   const ch = chapters[Math.floor(Math.random() * chapters.length)];
-  console.log(`  source: ${bookName} chapter ${ch.chapter} (${ch.verses.length} verses)`);
+  console.log(`  source: Surah ${bookName} (${ch.verses.length} ayahs)`);
   return { book: bookName, chapter: ch.chapter, verses: ch.verses };
 }
 
 function passageToText(passage, maxVerses = 45) {
   const verses = passage.verses.slice(0, maxVerses);
   const lines = verses.map((v) => `${v.v}. ${v.text}`);
-  return `${passage.book} ${passage.chapter} (SGSS Bible — simplified easy-English KJV)\n${lines.join("\n")}`;
+  return `Surah ${passage.chapter}: ${passage.book} (SGSS Quran — simple easy-English, Sahih International)\n${lines.join("\n")}`;
 }
 
 // ── Question generation ─────────────────────────────────────────────────────
@@ -188,24 +286,25 @@ async function generateChunk(count, passageText, avoidTexts, attempt) {
       ? "\n\nHere are recently used questions. Do NOT repeat these or closely paraphrase them — make every question fresh and distinct:\n" +
         avoidTexts.map((t) => `- ${t}`).join("\n")
       : "";
-  const prompt = `You are generating questions for a Bible trivia game. Everything must come from the SGSS Bible (a simplified, easy-English adaptation of the King James Version).
+  const prompt = `You are generating questions for a Quran trivia game. Everything must come from the SGSS Quran (the Sahih International translation in simple, easy English).
 
-SOURCE PASSAGE (from the SGSS Bible):
+SOURCE PASSAGE (from the SGSS Quran):
 ${passageText}
 
-Generate ${count} unique Bible trivia questions based on this passage and the Bible book it comes from. Mix:
-- Direct questions about what the passage says (people, places, events, numbers, teachings)
-- Broader questions about this book of the Bible and its key characters/stories
-- Some well-known cross-references when the passage connects to a famous Bible story or verse
+Generate ${count} unique Quran trivia questions based on this passage and the surah it comes from. Mix:
+- Direct questions about what the passage says (Allah, prophets, people, places, events, teachings, numbers)
+- Broader questions about this surah of the Quran and its key themes/stories
+- Some well-known cross-references when the passage connects to a famous Quranic story or verse
 
 Rules:
-- Every question must have a clear, factual answer from the Bible (use the KJV/SGSS text as truth)
+- Every question must have a clear, factual answer from the Quran (use the Sahih International text as truth)
 - Vary difficulty from easy to hard
-- For every question include a "ref" — the Bible reference like "John 3:16" or "Genesis 1" or "Psalm 23" — that a player could look up to verify the answer. Prefer references from the source passage or its book.
-- Do NOT invent verses or misquote references. If unsure of an exact verse, use the book name only (e.g. "Proverbs").
+- For every question include a "ref" — the Quran reference like "Al-Baqara 2:255" or "Surah 2:255" or "Al-Faatiha 1" — that a player could look up to verify the answer. Prefer references from the source passage or its surah.
+- Do NOT invent verses or misquote references. If unsure of an exact verse, use the surah name only (e.g. "Yusuf").
+- Respect Islamic content sensitivities: keep questions respectful and accurate.
 ${avoid}
 Return ONLY a JSON array (no markdown, no reasoning text) with exactly this structure:
-[{"question":"Question text?","options":["A","B","C","D"],"correctAnswer":0,"ref":"Book 3:16"}]
+[{"question":"Question text?","options":["A","B","C","D"],"correctAnswer":0,"ref":"Al-Baqara 2:255"}]
 "correctAnswer" must be the index (0-3) of the correct option. "ref" is a short string.`;
 
   const res = await fetch(`${BASE_URL}/chat/completions`, {
@@ -217,7 +316,7 @@ Return ONLY a JSON array (no markdown, no reasoning text) with exactly this stru
         {
           role: "system",
           content:
-            "You are a Bible trivia question generator. Generate accurate, engaging Bible trivia questions with exactly 4 answer options and one correct answer, each tagged with its Bible reference. Always respond with valid JSON only — no markdown, no extra text.",
+            "You are a Quran trivia question generator. Generate accurate, engaging Quran trivia questions with exactly 4 answer options and one correct answer, each tagged with its Quran reference. Always respond with valid JSON only — no markdown, no extra text.",
         },
         { role: "user", content: prompt },
       ],
@@ -256,99 +355,121 @@ Return ONLY a JSON array (no markdown, no reasoning text) with exactly this stru
   return out;
 }
 
-async function generateFresh(want, usedTexts) {
-  const avoidTexts = usedTexts.slice(-AVOID_N);
-  const usedSet = new Set(usedTexts.map(norm));
-  const accepted = [];
-  const seen = new Set();
-  let attempts = 0;
-
-  while (accepted.length < want && attempts < MAX_ATTEMPTS) {
-    attempts++;
-    const n = Math.min(CHUNK, want - accepted.length);
-    let batch;
-    try {
-      // Fresh random chapter per API call → wide Bible coverage across batches
-      const passage = await fetchRandomChapter();
-      const passageText = passageToText(passage);
-      batch = await generateChunk(n, passageText, avoidTexts, attempts);
-    } catch (err) {
-      console.warn(`  chunk ${attempts}: ${err.message}`);
-      if (attempts >= 3) await new Promise((r) => setTimeout(r, 5000 * attempts)); // back off on repeated failures
-      continue;
+async function generateFresh(want, usedTexts, onChunk) {
+  const out = [];
+  let attempt = 0;
+  while (out.length < want && attempt < MAX_ATTEMPTS) {
+    attempt += 1;
+    let batch = [];
+    // Transient API failures (empty content, 5xx, timeout) → retry with backoff.
+    // Without this, one flaky call aborted the whole run and lost every chunk.
+    for (let retry = 0; retry < 3 && !batch.length; retry++) {
+      try {
+        const passage = await fetchRandomChapter();
+        const passageText = passageToText(passage);
+        const avoid = usedTexts.slice(0, AVOID_N);
+        batch = await generateChunk(Math.min(CHUNK, want - out.length), passageText, avoid, attempt);
+        console.log(`  chunk ${attempt}: ${batch.length} questions from ${passage.book} (${passage.chapter})`);
+      } catch (err) {
+        if (retry === 2) throw err;
+        console.log(`  chunk ${attempt} failed (${err.message}) — retry ${retry + 1}/2 in ${20 * (retry + 1)}s`);
+        await new Promise((r) => setTimeout(r, 20000 * (retry + 1)));
+      }
     }
-    const fresh = batch.filter((q) => {
-      const key = norm(q.question);
-      if (usedSet.has(key) || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    accepted.push(...fresh);
-    console.log(`  chunk ${attempts}: got ${batch.length} raw, ${fresh.length} fresh (total ${accepted.length}/${want})`);
+    for (const item of batch) out.push(item);
+    // Persist each chunk as it completes — partial progress survives failures.
+    if (onChunk) await onChunk(batch);
+    if (batch.length === 0) break;
   }
-  return accepted;
+  return out;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
-  const meta = (await fbGet(`${P}/meta`).catch(() => null)) || {};
-  const game = (await fbGet(`${P}/game`).catch(() => null)) || {};
-  const bank = (await fbGet(`${P}/bank`).catch(() => null)) || {};
-  const usedRaw = Array.isArray(meta.used) ? meta.used : [];
-
-  const len = Object.keys(bank).length;
   const now = Date.now();
-  const slot = game.questionStart ? Math.floor((now - game.questionStart) / SLOT_DURATION) : 0;
-  const margin = len - slot;
 
-  console.log(
-    JSON.stringify({ bankLen: len, slot, margin, used: usedRaw.length, questionStart: game.questionStart || null, mode: "—" })
-  );
+  // Game state (bankLen + slot derived from questionStart) — the worker keeps
+  // the authoritative `bankLen`; meta has the generating lock + used list.
+  const game = (await fbGet(`${P}/game`)) || {};
+  const meta = (await fbGet(`${P}/meta`)) || {};
+  const bank = (await fbGet(`${P}/bank`)) || {};
+  const bankArr = Array.isArray(bank) ? bank : Object.keys(bank).map((k) => bank[k]).filter(Boolean);
+  const bankLen = Number(game.bankLen || bankArr.length || 0);
+  const slot = game.questionStart ? Math.floor((now - Number(game.questionStart)) / SLOT_DURATION) : 0;
+  const margin = bankLen - slot;
+  const used = Array.isArray(meta.used) ? meta.used : [];
+  console.log(JSON.stringify({ bankLen, slot, margin, used: used.length, questionStart: game.questionStart, mode: "—" }));
 
-  const behind = slot - len;
-  const mode = !game.questionStart || behind > RESET_BEHIND ? "RESET" : "APPEND";
-  const want = mode === "RESET" ? Math.min(RUNWAY, 400) : Math.max(MIN_ADD, RUNWAY - margin);
-
-  if (mode === "APPEND" && want < MIN_ADD) {
-    console.log(`Bank healthy (margin ${margin} ≥ ${RUNWAY - MIN_ADD}) — nothing to do.`);
+  if (meta.generating && now - Number(meta.generating) < 15 * 60 * 1000) {
+    console.log("Another generation is in progress (lock fresh) — skipping.");
     return;
   }
 
-  console.log(`Mode: ${mode} — generating up to ${want} questions...`);
-  const fresh = await generateFresh(want, usedRaw);
-  if (!fresh.length) throw new Error("generated 0 fresh questions after retries");
+  let bankData;
+  const want = Math.max(0, Math.min(RUNWAY - margin, 350));
 
-  // Lock the bank (worker honors meta.generating and won't top-up concurrently)
-  await fbPut(`${P}/meta`, { generating: Date.now(), used: usedRaw });
-
-  if (mode === "RESET") {
-    const patch = {};
-    fresh.forEach((q, i) => (patch[i] = q));
-    await fbPut(`${P}/bank`, patch);
-    await fbPut(`${P}/game`, {
+  if (!game.questionStart || slot - bankLen > RESET_BEHIND) {
+    // ── RESET ────────────────────────────────────────────────────────────
+    console.log("Mode: RESET — rebuilding bank from scratch...");
+    const persisted = [];
+    const onChunk = async (chunk) => {
+      persisted.push(...chunk);
+      const obj = {};
+      for (let i = 0; i < persisted.length; i++) obj[i] = persisted[i];
+      await fbPut(`${P}/bank`, obj); // idempotent full write of what we have
+      console.log(`  persisted ${persisted.length} questions so far...`);
+    };
+    const fresh = await generateFresh(320, [], onChunk);
+    if (fresh.length < 40) throw new Error(`RESET produced only ${fresh.length} questions`);
+    bankData = fresh;
+    await fbPut(`${P}/bank`, bankData);
+    await fbPatch(`${P}/game`, {
+      bankLen: fresh.length,
       questionStart: Date.now(),
       slotDuration: SLOT_DURATION,
-      bankLen: fresh.length,
-      startedAt: now,
+      startedAt: game.startedAt || Date.now(),
     });
-    await fbDelete(`${P}/answers`).catch(() => {});
-    console.log(`RESET done: fresh bank of ${fresh.length}, clock restarted.`);
-  } else {
-    const patch = {};
-    fresh.forEach((q, i) => (patch[len + i] = q));
-    await fbPatch(`${P}/bank`, patch);
-    await fbPatch(`${P}/game`, { bankLen: len + fresh.length });
-    console.log(`APPEND done: ${fresh.length} added (bank ${len} → ${len + fresh.length}).`);
+    await fbPatch(`${P}/meta`, { generating: 0, used: fresh.map((q) => q.question) });
+    console.log(`RESET done: bank rebuilt with ${fresh.length} questions.`);
+    return;
   }
 
-  // Record used (FIFO, capped)
-  const newUsed = [...usedRaw, ...fresh.map((q) => q.question)].slice(-USED_MAX);
-  await fbPut(`${P}/meta`, { generating: 0, used: newUsed });
+  if (want < MIN_ADD) {
+    console.log(`Bank healthy (margin ${margin}); nothing to add.`);
+    await fbPatch(`${P}/meta`, { generating: 0 });
+    return;
+  }
 
-  console.log("Done. New margin ≈", len + fresh.length - (mode === "RESET" ? 0 : slot));
+  // ── APPEND ─────────────────────────────────────────────────────────────
+  console.log(`Mode: APPEND — generating up to ${want} questions...`);
+  const fresh = await generateFresh(want, used);
+  if (fresh.length < MIN_ADD) {
+    console.log(`Only ${fresh.length} fresh questions; skipping append.`);
+    await fbPatch(`${P}/meta`, { generating: 0 });
+    return;
+  }
+
+  const existing = bankArr;
+  bankData = existing.concat(fresh);
+
+  // Write bank as a JSON object with numeric keys (avoids Firebase array
+  // coercion quirks at large sizes; the worker handles both shapes).
+  const obj = {};
+  for (let i = 0; i < bankData.length; i++) obj[i] = bankData[i];
+  await fbPut(`${P}/bank`, obj);
+
+  await fbPatch(`${P}/game`, {
+    bankLen: bankData.length,
+    questionStart: Date.now(),
+    slotDuration: SLOT_DURATION,
+    startedAt: game.startedAt || Date.now(),
+  });
+  const newUsed = fresh.map((q) => q.question).concat(used).slice(0, USED_MAX);
+  await fbPatch(`${P}/meta`, { generating: 0, used: newUsed });
+  console.log(`APPEND done: ${fresh.length} added (bank ${bankLen} → ${bankData.length}).`);
 }
 
 main().catch((err) => {
-  console.error("FAILED:", err.message);
+  console.error(err.stack || String(err));
   process.exit(1);
 });

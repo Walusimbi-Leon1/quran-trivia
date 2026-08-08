@@ -1,4 +1,4 @@
-name = "bible-trivia"
+name = "quran-trivia"
 main = "dist/worker.js"
 compatibility_date = "2026-08-08"
 
@@ -10,10 +10,10 @@ compatibility_date = "2026-08-08"
 
 [vars]
 # Discord OAuth (confidential client) — client ID is public.
-DISCORD_CLIENT_ID = "1535538505961447434"
+DISCORD_CLIENT_ID = "1535569391931101224"
 # IMPORTANT: must match the redirect URI registered in the Discord
 # Developer Portal EXACTLY (no trailing slash — matches Leon's authorize link).
-REDIRECT_URI = "https://bible-trivia.walusimbileon1.workers.dev"
+REDIRECT_URI = "https://quran-trivia.walusimbileon1.workers.dev"
 
 # Question generation — opencode.ai (big-pickle)
 MODEL = "big-pickle"

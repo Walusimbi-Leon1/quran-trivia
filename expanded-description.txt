@@ -1,34 +1,38 @@
-📖 **BIBLE TRIVIA — The Ultimate Bible Quiz Game!**
+🕌 Quran Trivia — Fast-Paced Multiplayer Quran Trivia for Discord!
 
-Step into the greatest story ever told! Bible Trivia is a fast-paced, multiplayer quiz game that puts your knowledge of the Word of God to the test. Whether you're a lifelong Bible scholar, a Sunday school teacher, a youth group leader, or someone just starting their faith journey, there's a question here for you — and a crown waiting at the top of the leaderboard! 👑
+Race the clock with friends in a single global arena where everyone sees the same Quran question at the same time. Every 20 seconds a new question appears — answer fast, answer right, and climb the leaderboard!
 
-🎯 **HOW TO PLAY**
-The game is beautifully simple: one global arena, everyone plays together. A question appears on the screen and every player sees it at the exact same moment. You have 20 seconds to pick the right answer from four options. But don't think too long — the faster you answer correctly, the more points you score! First correct answer = maximum points. Slow down, and the points shrink. Miss it, and you get nothing! Every round is a race against the clock AND against every other player in the arena. ⚡
+✨ FEATURES
+• Instant play — no rooms, no setup. Join a voice channel and start the activity. You're in the game immediately.
+• One global arena — every player around the world sees the same question at the same moment. Pure, fair competition.
+• 20-second question slots — the clock never stops. Questions rotate continuously, day and night.
+• Speed-based scoring — the first correct answer in each slot scores the most points. Fast thinkers win!
+• Persistent leaderboard — your username, avatar, and score stay in the game even if you leave and come back later. Your progress is never lost.
+• 4-answer multiple choice — clean, mobile-friendly buttons that work with Discord's gamepad and touch controls.
+• Reference tags on every question — each question shows its surah reference (like "Al-Baqara 2:255") so you can look it up in the Quran and learn as you play.
+• Beautiful emerald & gold design — a calm, elegant Islamic-inspired theme that feels at home on Discord.
 
-⭐ **SPEED-BASED SCORING**
-Think fast! You can earn up to 100 points per question — but every second you hesitate costs you 5 points. The first player to lock in the correct answer takes the crown for that round. It's not just about knowing the Bible; it's about trusting what you know and acting fast! Can you stay calm under pressure and climb to the top?
+📖 QUESTION SOURCING
+Every question comes from the SGSS Quran — a simplified, easy-English presentation of the highly regarded Sahih International translation. All 114 surahs are in rotation, from Al-Faatiha to An-Naas. Questions cover:
+• Allah's names and attributes (Ar-Rahmaan, Al-Kareem…)
+• The prophets (Adam, Nuh, Ibrahim, Musa, Isa, Muhammad ﷺ…)
+• People and stories (Yusuf and his brothers, the People of the Cave, Maryam…)
+• Places (Makkah, Madinah, Egypt, Jerusalem…)
+• Teachings and guidance (prayer, charity, patience, justice…)
+• Well-known verses and themes
 
-📜 **100% BIBLE-BASED — FROM THE SGSS BIBLE**
-Every single question is crafted from the SGSS Bible — a simplified, easy-English adaptation of the beloved King James Version. That means the questions are faithful to Scripture and easy to understand. And here's the best part: EVERY question comes with its Bible reference (like John 3:16 or Psalm 23) displayed right on screen, so you can look it up and learn as you play. It's not just a game — it's Bible study disguised as fun! ✨
+🆕 FRESH QUESTIONS, ALWAYS
+A question-generation pipeline (GitHub Actions + AI) tops up the bank every 30 minutes, sourcing fresh passages from the SGSS Quran. The game never runs out, and repeats are minimized — there's always something new to learn.
 
-🔄 **ENDLESS FRESH QUESTIONS**
-The question bank is never the same twice! New questions are generated automatically every 30 minutes from random chapters across all 66 books of the Bible — Genesis to Revelation, Old Testament to New Testament. From the creation of the world to the miracles of Jesus, from the Psalms of David to the visions of Revelation — hundreds of questions on people, places, parables, miracles, teachings, prophets, and well-known verses. There's always something new to discover, so you can play all day, every day! 🌍
+🌍 FOR THE MUSLIM COMMUNITY
+Quran Trivia was built specifically for Muslim users on Discord who want a fun, respectful way to test and grow their Quran knowledge. All content is kept accurate, respectful, and family-friendly.
 
-👥 **PLAY WITH FRIENDS**
-Challenge your friends, family, church group, or youth fellowship! Launch Bible Trivia in any Discord voice channel and watch the leaderboard come alive. Everyone sees the same question at the same time, so it's a true test of who knows their Bible best. Bragging rights are on the line! 🏆
+👥 HOW TO PLAY
+1. Join a Discord voice channel.
+2. Click "Start Activity" and pick Quran Trivia.
+3. Answer the multiple-choice questions before the 20-second timer runs out.
+4. Score points, climb the leaderboard, and challenge your friends to beat your rank!
 
-📊 **PERSISTENT LEADERBOARD**
-Your name, avatar, and score are saved — even if you leave the game and come back hours later, your progress is waiting for you. Climb the global leaderboard, earn your rank, and chase that golden crown! Live player counts, real-time rankings, and your personal rank always visible. 🥇🥈🥉
+Free to play. No downloads. No sign-ups. Just open the activity and go.
 
-🎨 **BEAUTIFUL BIBLE THEME**
-Immerse yourself in a rich, elegant design — deep scripture-blue tones with golden highlights, clean modern layout, smooth animations, and a reading experience that honors the beauty of the Word. Designed for both Discord Activities and any web browser. Beautiful on mobile and desktop! 💎
-
-🧠 **LEARN WHILE YOU PLAY**
-Every question is a chance to grow in faith. See a reference you don't know? Open your Bible and check it! Many players say they've learned more Scripture through Bible Trivia than through years of casual reading. Perfect for families, church events, youth groups, Bible study groups, and friendly competitions. 🙏
-
-✅ **FREE TO PLAY**
-Bible Trivia is completely free. No ads, no paywalls, no gimmicks. Just pure, wholesome, competitive Bible fun for everyone.
-
-So what are you waiting for? Open Bible Trivia, invite your friends, and let's find out who truly knows the Word! May the most faithful — and the fastest — win! 🙌
-
-📖 *"Your word is a lamp to my feet and a light to my path." — Psalm 119:105*
+Start playing today and see how well you know the Quran! 🕌✨
