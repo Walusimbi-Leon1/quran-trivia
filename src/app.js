@@ -386,7 +386,7 @@ function renderQuestion(q) {
 
 function updateAnsweredCount() {
   const answeredCount = Object.keys(answers).length;
-  const onlineCount = Math.max(1, Object.values(players).filter((p) => p.online).length);
+  const onlineCount = Math.max(1, Object.values(players).filter(isLive).length);
   const el = $("q-answered");
   if (el) el.textContent = `⚡ ${answeredCount}/${onlineCount} answered`;
 }
@@ -397,7 +397,7 @@ function renderLeaderboard() {
   const all = Object.values(players).filter((p) => p && typeof p === "object");
   // Always include yourself — even if the players map is stale/empty on boot,
   // your row renders so you can never be "missing" from the board.
-  if (!all.some((p) => p.id === me.id)) all.push({ ...me, online: true });
+  if (!all.some((p) => p.id === me.id)) all.push({ ...me, online: true, lastSeen: Date.now() });
 
   const sorted = all.sort(
     (a, b) => (b.score || 0) - (a.score || 0) || (b.lastSeen || 0) - (a.lastSeen || 0)
@@ -420,7 +420,7 @@ function renderLeaderboard() {
 
   const el = $("lb-list");
   if (!el) return;
-  const liveCount = sorted.filter((p) => p.online).length;
+  const liveCount = sorted.filter(isLive).length;
   const titleEl = $("lb-title");
   if (titleEl) {
     titleEl.innerHTML =
@@ -433,7 +433,7 @@ function renderLeaderboard() {
         .map((item, i) => {
           const p = item.p;
           const rank = item.rank;
-          const isOffline = !p.online;
+          const isOffline = !isLive(p);
           const mine = p.id === me.id;
           const divider = i === LB_TOP ? '<div class="lb-divider"><span></span>· · ·<span></span></div>' : "";
           return (
@@ -472,6 +472,25 @@ function showError(msg) {
 }
 
 // ── Presence ────────────────────────────────────────────────────────────────
+// A player is "live" only if their heartbeat is FRESH. The raw `online` flag
+// alone is unreliable: it's set true on join and only flipped false on
+// visibilitychange / beforeunload — which rarely fire inside Discord's
+// embedded Activity (the webview is silently destroyed when a user leaves the
+// voice channel). Result: every past player stayed `online:true` forever and
+// the live count ballooned (e.g. 65 "live" of 67 total when nobody was playing).
+// `lastSeen` is written every 30s by the heartbeat below, so freshness is the
+// source of truth: online + recent heartbeat = live.
+const LIVE_STALE_MS = 180000; // 3 min without a heartbeat → offline
+
+function isLive(p) {
+  return !!(
+    p &&
+    p.online &&
+    p.lastSeen &&
+    Date.now() - Number(p.lastSeen) < LIVE_STALE_MS
+  );
+}
+
 function startPresence() {
   const beat = async () => {
     try {
