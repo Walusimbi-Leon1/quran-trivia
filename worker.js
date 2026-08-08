@@ -657,10 +657,16 @@ async function handleTrivia(request, env, ctx) {
       return json({ bankLen: fresh.length, source: fresh.length ? "ai" : "seed" });
     }
 
-    // Bank low → generate fresh batches via opencode.ai (avoiding repeats).
-    await fbPut(env, `${P}/meta`, { generating: Date.now(), used: usedRaw });
+    // Bank healthy — nothing to do (the client only calls when the bank
+    // runs low, but guard against redundant generation anyway).
     const game0 = (await fbGet(env, `${P}/game`).catch(() => null)) || {};
     const globalSlot = game0.questionStart ? Math.floor((Date.now() - game0.questionStart) / SLOT_DURATION) : 0;
+    if (globalSlot - len + TOP_UP_THRESHOLD <= 0) {
+      return json({ bankLen: len, healthy: true });
+    }
+
+    // Bank low → generate fresh batches via opencode.ai (avoiding repeats).
+    await fbPut(env, `${P}/meta`, { generating: Date.now(), used: usedRaw });
     const need = Math.max(count, Math.min(60, globalSlot - len + TOP_UP_THRESHOLD));
 
     const allAccepted = [];
