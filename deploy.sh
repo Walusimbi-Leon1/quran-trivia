@@ -20,7 +20,7 @@ node build.js
 
 BOUNDARY="----bt-deploy-$(date +%s)"
 METADATA=$(cat <<JSON
-{"main_module":"worker.js","bindings":[{"type":"plain_text","name":"REDIRECT_URI","text":"https://${NAME}.walusimbileon1.workers.dev/"},{"type":"plain_text","name":"FB_HOST","text":"bible-game-21-default-rtdb.firebaseio.com"},{"type":"plain_text","name":"MODEL","text":"big-pickle"},{"type":"plain_text","name":"DISCORD_CLIENT_ID","text":"${DISCORD_CLIENT_ID}"}]}
+{"main_module":"worker.js","bindings":[{"type":"plain_text","name":"REDIRECT_URI","text":"https://${NAME}.walusimbileon1.workers.dev"},{"type":"plain_text","name":"FB_HOST","text":"bible-game-21-default-rtdb.firebaseio.com"},{"type":"plain_text","name":"MODEL","text":"big-pickle"},{"type":"plain_text","name":"DISCORD_CLIENT_ID","text":"${DISCORD_CLIENT_ID}"}]}
 JSON
 )
 

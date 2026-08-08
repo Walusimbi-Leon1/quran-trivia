@@ -17,9 +17,8 @@ import { DiscordSDK } from "./vendor/discord-sdk.mjs";
 
 // Discord Application Client ID — Discord injects ?client_id= into the
 // Activity iframe URL, so the URL param wins. This constant is the
-// fallback for direct links. Replace with the real ID from the Discord
-// Developer Portal once available.
-const CLIENT_ID = "PENDING_DISCORD_CLIENT_ID";
+// fallback for direct links.
+const CLIENT_ID = "1535538505961447434";
 
 export let discordSdk = null;
 export let isDiscord = false;

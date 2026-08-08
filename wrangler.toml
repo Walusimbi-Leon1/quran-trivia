@@ -10,8 +10,9 @@ compatibility_date = "2026-08-08"
 
 [vars]
 # Discord OAuth (confidential client) — client ID is public.
-# Replace with the real ID from the Discord Developer Portal once available.
-DISCORD_CLIENT_ID = "PENDING_DISCORD_CLIENT_ID"
+DISCORD_CLIENT_ID = "1535538505961447434"
+# IMPORTANT: must match the redirect URI registered in the Discord
+# Developer Portal EXACTLY (no trailing slash — matches Leon's authorize link).
 REDIRECT_URI = "https://bible-trivia.walusimbileon1.workers.dev"
 
 # Question generation — opencode.ai (big-pickle)
