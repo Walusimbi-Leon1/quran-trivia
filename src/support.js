@@ -20,25 +20,42 @@
 import { discordSdk, inDiscordFrame } from "./discord.js";
 
 const SUPPORT_URL = "https://walusimbi-leon1.github.io/voice-support/";
+const SGSS_URL = "https://walusimbi-leon1.github.io/sgss-quran/";
+
+function openExternalUrl(url) {
+  // Plain browser: native target="_blank" behavior is exactly right.
+  if (!inDiscordFrame) return;
+  // Discord sandbox: external navigation is blocked — use the SDK.
+  if (discordSdk && typeof discordSdk.commands.openExternalLink === "function") {
+    discordSdk.commands.openExternalLink({ url }).catch((err) => {
+      console.error("[support] openExternalLink failed:", err);
+      window.open(url, "_blank");
+    });
+  } else {
+    window.open(url, "_blank");
+  }
+}
 
 function wireLinks() {
-  const links = document.querySelectorAll(
+  const supportLinks = document.querySelectorAll(
     "a.support-link, a.support-chip, a[href='/support'], a[href='" + SUPPORT_URL + "']"
   );
-  links.forEach((a) => {
+  supportLinks.forEach((a) => {
     a.addEventListener("click", (e) => {
-      // Plain browser: native target="_blank" behavior is exactly right.
       if (!inDiscordFrame) return;
-      // Discord sandbox: external navigation is blocked — use the SDK.
       e.preventDefault();
-      if (discordSdk && typeof discordSdk.commands.openExternalLink === "function") {
-        discordSdk.commands.openExternalLink({ url: SUPPORT_URL }).catch((err) => {
-          console.error("[support] openExternalLink failed:", err);
-          window.open(SUPPORT_URL, "_blank");
-        });
-      } else {
-        window.open(SUPPORT_URL, "_blank");
-      }
+      openExternalUrl(SUPPORT_URL);
+    });
+  });
+  // SGSS Quran link: same treatment — opens the GitHub Pages site in the
+  // user's real browser (Discord blocks plain target="_blank" in the
+  // Activity sandbox).
+  const sgssLinks = document.querySelectorAll("a.sgss-link, a[href='" + SGSS_URL + "']");
+  sgssLinks.forEach((a) => {
+    a.addEventListener("click", (e) => {
+      if (!inDiscordFrame) return;
+      e.preventDefault();
+      openExternalUrl(SGSS_URL);
     });
   });
 }
