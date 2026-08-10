@@ -152,22 +152,17 @@ function filterFresh(questions, usedSet, bankSet) {
 // ── Discord OAuth exchange (Arrow Blast pattern) ────────────────────────────
 async function handleExchange(request, env) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  let code, sentClientId;
+  let code;
   try {
     const body = await request.json();
     code = body && body.code;
-    sentClientId = body && body.client_id;
   } catch {
     return json({ error: "Bad request — code required" }, 400);
   }
   if (!code || typeof code !== "string") return json({ error: "Bad request — code required" }, 400);
 
-  // Two Discord apps point at this same game (Quran Trivia + Islamic Trivia).
-  // Pick the secret by which app launched the Activity — the client sends
-  // its client_id (from the iframe URL ?client_id=, injected by Discord).
-  const clientId = sentClientId || env.DISCORD_CLIENT_ID;
-  const isIslamic = typeof clientId === "string" && clientId === env.ISLAMIC_CLIENT_ID;
-  const clientSecret = isIslamic ? env.ISLAMIC_CLIENT_SECRET : env.DISCORD_CLIENT_SECRET;
+  const clientId = env.DISCORD_CLIENT_ID;
+  const clientSecret = env.DISCORD_CLIENT_SECRET;
   const redirectUri = env.REDIRECT_URI;
 
   if (!clientId || !clientSecret) {
