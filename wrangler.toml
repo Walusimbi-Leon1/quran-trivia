@@ -9,8 +9,13 @@ compatibility_date = "2026-08-08"
 # Actions secret `OPENCODE_API_KEY`. Never commit real secret values here.
 
 [vars]
-# Discord OAuth (confidential client) — client ID is public.
+# Discord OAuth (confidential client) — client IDs are public.
+# TWO apps point at this same game; the worker picks the secret by the
+# client_id the Activity sends (from Discord's ?client_id= URL param).
+# Quran Trivia app (original):
 DISCORD_CLIENT_ID = "1535569391931101224"
+# Islamic Trivia app (same game, second listing):
+ISLAMIC_CLIENT_ID = "1536204473582489650"
 # IMPORTANT: must match the redirect URI registered in the Discord
 # Developer Portal EXACTLY (no trailing slash — matches Leon's authorize link).
 REDIRECT_URI = "https://quran-trivia.walusimbileon1.workers.dev"
