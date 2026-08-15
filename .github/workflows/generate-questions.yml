@@ -4,7 +4,8 @@ name: Generate Quran Trivia Questions
 # (20s per question, clock runs 24/7), so this runs every 30 minutes to keep
 # ~2 hours of runway. Public repo → free unlimited Actions minutes.
 # Every batch sources fresh surahs from the SGSS Quran repo and generates
-# questions with opencode.ai (big-pickle).
+# questions with NVIDIA Neomotron (primary) — opencode.ai big-pickle was
+# rate-limiting GitHub runners. Falls back to opencode.ai if NVIDIA fails.
 
 on:
   schedule:
@@ -34,6 +35,6 @@ jobs:
       - name: Generate & refill question bank
         run: node scripts/generate-questions.js
         env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          MODEL: big-pickle
           FB_HOST: bible-game-21-default-rtdb.firebaseio.com

@@ -15,7 +15,9 @@ DISCORD_CLIENT_ID = "1535569391931101224"
 # Developer Portal EXACTLY (no trailing slash — matches Leon's authorize link).
 REDIRECT_URI = "https://quran-trivia.walusimbileon1.workers.dev"
 
-# Question generation — opencode.ai (big-pickle)
+# Question generation — NVIDIA Neomotron (primary; fresh IPs from GitHub
+# runners, no opencode.ai rate-limit flags). opencode.ai big-pickle is the
+# fallback configured in the GitHub Action.
 MODEL = "big-pickle"
 
 # Firebase Realtime Database (shared, public-writable)

@@ -44,12 +44,20 @@ const AVOID_N = 40; // how many past questions to send as "do not repeat"
 const MAX_ATTEMPTS = 8; // max API calls per run
 const API_TIMEOUT_MS = 240000;
 
-const BASE_URL = process.env.OPENCODE_BASE_URL || "https://opencode.ai/zen/v1";
-const MODEL = process.env.MODEL || "big-pickle";
+// Provider configuration.
+// Primary: NVIDIA Neomotron (fresh IP from GitHub runners — opencode.ai
+// rate-limits are tied to IP/key history). Fallback: opencode.ai big-pickle.
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
+const OPENCODE_API_KEY = process.env.OPENCODE_API_KEY;
 const FB_HOST = (process.env.FB_HOST || "bible-game-21-default-rtdb.firebaseio.com").replace(/^https?:\/\//, "");
 const P = "quran/global"; // RTDB namespace path
 
 const SGSS_RAW = "https://raw.githubusercontent.com/Walusimbi-Leon1/sgss-quran/main/books";
+
+if (!NVIDIA_API_KEY && !OPENCODE_API_KEY) {
+  console.error("No API key set — need NVIDIA_API_KEY or OPENCODE_API_KEY");
+  process.exit(1);
+}
 
 // The 114 surahs of the SGSS Quran, with their repo filenames.
 // Al-Baqara is long (286 ayahs) but every surah is fair game — uniform
@@ -170,12 +178,6 @@ const BOOKS = [
   "113-Al-Falaq.html",
   "114-An-Naas.html",
 ];
-
-const API_KEY = process.env.OPENCODE_API_KEY;
-if (!API_KEY) {
-  console.error("OPENCODE_API_KEY not set");
-  process.exit(1);
-}
 
 // ── Firebase helpers ────────────────────────────────────────────────────────
 const fbUrl = (path) => `https://${FB_HOST}/${path}.json`;
@@ -302,52 +304,76 @@ Return ONLY a JSON array (no markdown, no reasoning text) with exactly this stru
 [{"question":"Question text?","options":["A","B","C","D"],"correctAnswer":0,"ref":"Al-Baqara 2:255"}]
 "correctAnswer" must be the index (0-3) of the correct option. "ref" is a short string.`;
 
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a Quran trivia question generator. Generate accurate, engaging Quran trivia questions with exactly 4 answer options and one correct answer, each tagged with its Quran reference. Always respond with valid JSON only — no markdown, no extra text.",
-        },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.9,
-      max_tokens: MAX_TOKENS,
-    }),
-    signal: AbortSignal.timeout(API_TIMEOUT_MS),
-  });
+  // ── Provider chain: NVIDIA Neomotron (primary) → opencode.ai big-pickle (fallback)
+  // Each provider gets up to 3 retries with exponential backoff on 429/5xx/timeout,
+  // so a single rate-limit or transient error no longer aborts the whole batch run.
+  const providers = [
+    { name: "nvidia", baseUrl: "https://integrate.api.nvidia.com/v1/chat/completions", model: "nvidia/neomotron-3-8b-base", key: NVIDIA_API_KEY },
+    { name: "opencode", baseUrl: "https://opencode.ai/zen/v1", model: "big-pickle", key: OPENCODE_API_KEY },
+  ];
 
-  if (res.status === 429) throw new Error(`rate limited (attempt ${attempt})`);
-  if (!res.ok) throw new Error(`opencode.ai ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  let lastErr;
+  for (const prov of providers) {
+    if (!prov.key) continue; // provider not configured, skip
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        console.log(`  provider: ${prov.name}/${prov.model} (retry ${retry + 1}/3)`);
+        const res = await fetch(prov.baseUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${prov.key}` },
+          body: JSON.stringify({
+            model: prov.model,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a Quran trivia question generator. Generate accurate, engaging Quran trivia questions with exactly 4 answer options and one correct answer, each tagged with its Quran reference. Always respond with valid JSON only — no markdown, no extra text.",
+              },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0.9,
+            max_tokens: MAX_TOKENS,
+          }),
+          signal: AbortSignal.timeout(API_TIMEOUT_MS),
+        });
 
-  const data = await res.json();
-  let content = data?.choices?.[0]?.message?.content || "";
-  if (!content.trim()) throw new Error("empty content from model");
+        if (res.status === 429) throw new Error(`rate limited (attempt ${attempt})`);
+        if (!res.ok) throw new Error(`provider ${res.status}: ${(await res.text()).slice(0, 200)}`);
 
-  // Strip markdown fences if the model was stubborn
-  const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
-  const start = cleaned.indexOf("[");
-  const end = cleaned.lastIndexOf("]");
-  if (start < 0 || end <= start) throw new Error("no JSON array in response");
+        const data = await res.json();
+        let content = data?.choices?.[0]?.message?.content || "";
+        if (!content.trim()) throw new Error("empty content from provider");
 
-  const parsed = JSON.parse(cleaned.slice(start, end + 1));
-  if (!Array.isArray(parsed)) throw new Error("response is not an array");
+        // Strip markdown fences if the model was stubborn
+        const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+        const s = cleaned.indexOf("[");
+        const e = cleaned.lastIndexOf("]");
+        if (s < 0 || e <= s) throw new Error("no JSON array in response");
 
-  const out = [];
-  for (const q of parsed) {
-    if (typeof q?.question !== "string" || !Array.isArray(q?.options) || q.options.length !== 4) continue;
-    let a = q.correctAnswer;
-    if (typeof a === "string") a = parseInt(a, 10);
-    if (typeof a !== "number" || a < 0 || a > 3) continue;
-    const item = { question: q.question, options: q.options.map(String), correctAnswer: a };
-    if (typeof q.ref === "string" && q.ref.trim() && q.ref.length <= 80) item.ref = q.ref.trim();
-    out.push(item);
+        const parsed = JSON.parse(cleaned.slice(s, e + 1));
+        if (!Array.isArray(parsed)) throw new Error("response is not an array");
+
+        const out = [];
+        for (const q of parsed) {
+          if (typeof q?.question !== "string" || !Array.isArray(q?.options) || q.options.length !== 4) continue;
+          let a = q.correctAnswer;
+          if (typeof a === "string") a = parseInt(a, 10);
+          if (typeof a !== "number" || a < 0 || a > 3) continue;
+          const item = { question: q.question, options: q.options.map(String), correctAnswer: a };
+          if (typeof q.ref === "string" && q.ref.trim() && q.ref.length <= 80) item.ref = q.ref.trim();
+          out.push(item);
+        }
+        if (!out.length) throw new Error("no valid questions parsed from ${prov.name}");
+        console.log(`  -> ${prov.name}/${prov.model}: parsed ${out.length} questions`);
+        return out;
+      } catch (err) {
+        lastErr = err;
+        console.log(`    ${prov.name} failed (${err.message}) — retry ${retry + 1}/3 in ${20 * (retry + 1)}s`);
+        if (retry < 2) await new Promise((r) => setTimeout(r, 20000 * (retry + 1)));
+      }
+    }
   }
-  return out;
+  throw lastErr || new Error("all providers exhausted");
 }
 
 async function generateFresh(want, usedTexts, onChunk) {

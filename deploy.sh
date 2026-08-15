@@ -5,6 +5,7 @@
 #   DISCORD_CLIENT_ID     (Discord application client ID — public, but keep env-driven)
 #   DISCORD_CLIENT_SECRET (Discord app secret)
 #   OPENCODE_API_KEY      (opencode.ai API key — optional; question pipeline uses the GH Actions secret)
+#   NVIDIA_API_KEY        (NVIDIA API key — primary provider for the question pipeline)
 set -euo pipefail
 
 ACC=d21711ae11a362bc4d57d4fd48deae61
@@ -14,6 +15,7 @@ NAME=quran-trivia
 : "${DISCORD_CLIENT_ID:?DISCORD_CLIENT_ID required (Discord application client ID)}"
 : "${DISCORD_CLIENT_SECRET:?DISCORD_CLIENT_SECRET required (Discord app secret)}"
 OPENCODE_API_KEY="${OPENCODE_API_KEY:-}"
+NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 
 cd "$(dirname "$0")"
 node build.js
@@ -56,4 +58,10 @@ if [ -n "$OPENCODE_API_KEY" ]; then
     "https://api.cloudflare.com/client/v4/accounts/$ACC/workers/scripts/$NAME/secrets" \
     --data "{\"name\":\"OPENCODE_API_KEY\",\"text\":\"$OPENCODE_API_KEY\",\"type\":\"secret_text\"}" >/dev/null
 fi
-echo "Script secrets set: DISCORD_CLIENT_SECRET${OPENCODE_API_KEY:+, OPENCODE_API_KEY}"
+if [ -n "$NVIDIA_API_KEY" ]; then
+  curl -s -X PUT -H "Authorization: Bearer $CF_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    "https://api.cloudflare.com/client/v4/accounts/$ACC/workers/scripts/$NAME/secrets" \
+    --data "{\"name\":\"NVIDIA_API_KEY\",\"text\":\"$NVIDIA_API_KEY\",\"type\":\"secret_text\"}" >/dev/null
+fi
+echo "Script secrets set: DISCORD_CLIENT_SECRET${OPENCODE_API_KEY:+, OPENCODE_API_KEY}${NVIDIA_API_KEY:+, NVIDIA_API_KEY}"

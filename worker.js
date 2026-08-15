@@ -124,6 +124,13 @@ async function readUsed(env) {
   return Array.isArray(meta.used) ? meta.used : [];
 }
 
+// Stale lock? If a previous generation (worker-side or Action) set the
+// `generating` timestamp more than GEN_LOCK_MS ago, it never completed —
+// clear the lock so the game doesn't stall on "preparing".
+function isStaleLock(meta) {
+  return meta && meta.generating && Date.now() - Number(meta.generating) > GEN_LOCK_MS;
+}
+
 async function markUsed(env, questions) {
   if (!questions || !questions.length) return;
   const meta = (await fbGet(env, `${P}/meta`).catch(() => null)) || {};
@@ -437,8 +444,24 @@ async function handleTrivia(request, env, ctx) {
     const usedSet = new Set(usedRaw.map(norm));
     const bankSet = new Set(Object.values(bank).filter((q) => q?.question).map((q) => norm(q.question)));
 
+    // STALE LOCK GUARD: if a prior generation set `generating` but never
+    // completed (Action crashed, rate-limit, etc.), the game would otherwise
+    // stall on "Preparing new questions" forever even though the bank has
+    // content. Clear the lock and fall through to normal bank logic — the
+    // bank ALWAYS serves live questions; generation is only for top-ups.
     if (meta.generating && Date.now() - meta.generating < GEN_LOCK_MS) {
-      return json({ bankLen: len, generating: true });
+      // Active lock AND empty bank → genuinely preparing (rare: only if a
+      // top-up is mid-flight and the bank hit 0, which shouldn't happen
+      // normally since the Action keeps RUNWAY ahead of the clock).
+      if (len === 0) return json({ bankLen: len, generating: true });
+      // Active lock but bank has content → IGNORE the lock, serve from bank
+      // and clear it so the next top-up can proceed. Never stall the game.
+      console.warn("[Trivia] clearing stale generating lock (bank has ${len} questions)");
+      await fbPatch(env, `${P}/meta`, { generating: 0 }).catch(() => {});
+    }
+    // Stale lock (lock older than the window but not cleared) — clear it.
+    if (isStaleLock(meta)) {
+      await fbPatch(env, `${P}/meta`, { generating: 0 }).catch(() => {});
     }
 
     // One-time migration (lettersV2): reshuffle the EXISTING bank so the
