@@ -5,7 +5,7 @@ name: Generate Quran Trivia Questions
 # ~2 hours of runway. Public repo → free unlimited Actions minutes.
 # Every batch sources fresh surahs from the SGSS Quran repo and generates
 # questions with NVIDIA Neomotron (primary) — opencode.ai big-pickle was
-# rate-limiting GitHub runners. Falls back to opencode.ai if NVIDIA fails.
+# rate-limiting GitHub runners. Falls back to opencode.ai oc/hy3-free if NVIDIA fails.
 
 on:
   schedule:

@@ -304,12 +304,12 @@ Return ONLY a JSON array (no markdown, no reasoning text) with exactly this stru
 [{"question":"Question text?","options":["A","B","C","D"],"correctAnswer":0,"ref":"Al-Baqara 2:255"}]
 "correctAnswer" must be the index (0-3) of the correct option. "ref" is a short string.`;
 
-  // ── Provider chain: NVIDIA Neomotron (primary) → opencode.ai big-pickle (fallback)
+  // ── Provider chain: NVIDIA Neomotron (primary) → opencode.ai oc/hy3-free (fallback)
   // Each provider gets up to 3 retries with exponential backoff on 429/5xx/timeout,
   // so a single rate-limit or transient error no longer aborts the whole batch run.
   const providers = [
     { name: "nvidia", baseUrl: "https://integrate.api.nvidia.com/v1/chat/completions", model: "nvidia/neomotron-3-8b-base", key: NVIDIA_API_KEY },
-    { name: "opencode", baseUrl: "https://opencode.ai/zen/v1", model: "big-pickle", key: OPENCODE_API_KEY },
+    { name: "opencode", baseUrl: "https://opencode.ai/zen/v1", model: "oc/hy3-free", key: OPENCODE_API_KEY },
   ];
 
   let lastErr;
