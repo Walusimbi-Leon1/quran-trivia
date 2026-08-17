@@ -529,10 +529,28 @@ async function handleTrivia(request, env, ctx) {
       return json({ bankLen: fresh.length, source: fresh.length ? "ai" : "seed" });
     }
 
-    // Bank healthy — nothing to do (the client only calls when the bank
-    // runs low, but guard against redundant generation anyway).
+    // Clock exhausted (or about to be): the slot counter has run past the end
+    // of the bank. Rather than stall forever (which happens when generation
+    // can't keep up with a 20s clock running 24/7), RESTART the question clock
+    // against the existing bank. The questions already on disk are reused from
+    // slot 0 — they're never deleted, so this is free and always keeps the game
+    // showing questions. This mirrors how bible-trivia/trivia-rumble handle a
+    // drained clock: reset questionStart to now, keep bankLen.
     const game0 = (await fbGet(env, `${P}/game`).catch(() => null)) || {};
     const globalSlot = game0.questionStart ? Math.floor((Date.now() - game0.questionStart) / SLOT_DURATION) : 0;
+    if (globalSlot >= len) {
+      // Clock exhausted → hard restart: fresh questionStart, same bank.
+      await fbPut(env, `${P}/game`, {
+        questionStart: Date.now(),
+        slotDuration: SLOT_DURATION,
+        bankLen: len,
+        startedAt: game0.startedAt || Date.now(),
+      });
+      return json({ bankLen: len, restarted: true, globalSlot });
+    }
+
+    // Bank healthy — nothing to do (the client only calls when the bank
+    // runs low, but guard against redundant generation anyway).
     if (globalSlot - len + TOP_UP_THRESHOLD <= 0) {
       return json({ bankLen: len, healthy: true });
     }

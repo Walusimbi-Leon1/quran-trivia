@@ -85,20 +85,25 @@ function showScreen(name) {
 }
 
 // ── Question timing (deterministic, shared by all players) ──────────────────
-// No modulo wrap-around: each bank index is played exactly once, so questions
-// never repeat. The worker tops the bank up ahead of the current slot; if the
-// bank is momentarily exhausted the client shows "Preparing new questions…".
+// slot = floor((now - game.questionStart) / slotDuration)
+// Each slot maps to bank[slot % bank.length]. The worker resets questionStart
+// to `now` whenever the slot counter runs past the bank length (clock
+// exhaustion), so the slot normally stays within bounds. The modulo here is a
+// final safety net: even if the clock drifts, the game never shows a blank /
+// stuck screen — it wraps around and keeps showing questions. The worker's
+// /api/trivia restart resets questionStart, so the slot resets to 0 on the
+// next syncGameClock() call.
 function currentQuestion() {
   if (!game || !game.questionStart || !bank.length) return null;
   const duration = game.slotDuration || SLOT_DURATION;
   const elapsed = Math.max(0, now() - game.questionStart);
   const slot = Math.floor(elapsed / duration);
-  if (slot >= bank.length) return null;   // bank exhausted — wait for top-up
-  const q = bank[slot];
+  const realSlot = slot % bank.length;   // wrap around — never stall
+  const q = bank[realSlot];
   if (!q) return null;
   return {
-    slot,
-    index: slot + 1,          // human-friendly "Question #N"
+    slot,            // actual slot counter (may be >= bank.length before reset)
+    index: realSlot + 1,   // human-friendly "Question #N" (1-based within bank)
     question: q,
     slotStart: game.questionStart + slot * duration,
     slotEnd: game.questionStart + (slot + 1) * duration,
@@ -242,12 +247,50 @@ async function joinGlobal() {
 }
 
 // ── Bank management ─────────────────────────────────────────────────────────
+// Always fetch the current game clock from the worker. The worker owns the
+// canonical questionStart / bankLen and will reset the clock to `now` if the
+// slot counter has run past the end of the bank (clock exhaustion recovery).
+// The client only READS the bank via /firebase (the whole array is ~4MB and
+// fragile in embedded sandboxes); /api/trivia is the worker's "ensure the game
+// can show a question" entry point and is safe to call on every tick.
+async function syncGameClock() {
+  try {
+    const res = await fetch("/api/trivia", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ count: 20 }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    // Worker always returns the live bankLen. On a clock-exhaustion reset it
+    // sends `restarted: true` and a fresh questionStart.
+    if (typeof data.bankLen === "number") {
+      const g = await dbRead(`${P}/game`).catch(() => null);
+      if (g && g.questionStart) game = g;
+      // Re-read the bank whenever the clock was restarted or we have none.
+      if (data.restarted || !bank.length) {
+        const snapshot = await dbRead(`${P}/bank`).catch(() => null);
+        bank = bankArray(snapshot);
+      } else if (!bank.length) {
+        const snapshot = await dbRead(`${P}/bank`).catch(() => null);
+        bank = bankArray(snapshot);
+      }
+      return true;
+  }
+}
+
 async function ensureBank(force) {
   if (requestingBank) return;
   requestingBank = true;
   try {
+    // Always go through the worker first: it owns the canonical clock and
+    // resets questionStart if the slot counter ran past the bank end.
+    const ok = await syncGameClock();
+
+    // Now make sure we have a local bank array to read questions from.
     const snapshot = await dbRead(`${P}/bank`).catch(() => null);
     bank = bankArray(snapshot);
+
     let need = !!force;
     if (!need && game && game.questionStart) {
       const duration = game.slotDuration || SLOT_DURATION;
@@ -256,6 +299,7 @@ async function ensureBank(force) {
     }
     if (!need) return;
 
+    // Top-up: ask the worker to add more questions if the bank is running low.
     const res = await fetch("/api/trivia", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -527,10 +571,16 @@ function maybeTopUp(q) {
 function tick() {
   const q = currentQuestion();
   if (!q) {
+    // No question available for this slot. We only reach here if the local
+    // bank is empty (never loaded / read failed) — currentQuestion() now uses
+    // modulo so a stale clock always wraps around and produces a question.
+    // "Connecting to the arena…" is the initial connect state; if the bank
+    // never loaded, that's a transient network issue, so we keep retrying via
+    // ensureBank() instead of leaving the player staring at a dead screen.
     if (!game || !bank.length) {
-      $("loading-msg").textContent = "Connecting to the arena…";
+      $("loading-msg").textContent = "Preparing new questions…";
+      ensureBank(true);
     } else {
-      // bank momentarily exhausted — worker is topping up with fresh questions
       $("loading-msg").textContent = "Preparing new questions…";
       ensureBank(true);
     }
