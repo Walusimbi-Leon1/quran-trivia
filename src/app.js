@@ -229,7 +229,12 @@ async function resolveIdentity() {
     id: gid,
     username: guestNameFromId(gid),  // stable + unique per session
     avatarUrl: "",
-    platform: isDiscord ? "discord" : "browser",
+    // Guests are guests regardless of where they are — platform is only
+    // "discord" if they actually authenticated via Discord OAuth above.
+    // Without this, Discord-fallback guests get tagged platform:"discord"
+    // but have no username/avatar — appearing as "Guest 575" with the wrong
+    // platform badge.
+    platform: "browser",
   };
 }
 
