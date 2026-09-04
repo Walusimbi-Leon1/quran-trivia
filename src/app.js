@@ -129,6 +129,18 @@ function startSync() {
   // (uids sort alphabetically, and the worker assigns sequential ids, so this
   // is an effective proxy for newest / highest-ranked). We also patch our own
   // record in so we're always visible even if we're not in the top N.
+  // One-time fetch of ALL players (for the all-time leaderboard). Runs once
+  // on boot, separately from the live top-80 poll, so we don't hammer the RTDB
+  // with a huge unbounded read every poll cycle.
+  const fetchAllTime = async () => {
+    try {
+      const all = await dbRead(`${P}/players`).catch(() => null);
+      if (all && typeof all === "object") {
+        players = { ...all };
+      }
+    } catch (e) { /* keep top-80 subset */ }
+  };
+
   const syncPlayers = async () => {
     try {
       const top = await dbReadRange(`${P}/players`, {
@@ -137,7 +149,9 @@ function startSync() {
       }).catch(() => null);
       const self = await dbRead(`${P}/players/${me.id}`).catch(() => null);
       if (top && typeof top === "object") {
-        players = { ...top };
+        // Merge: start from all-time snapshot, overwrite with fresh top-80 + self.
+        // Leaderboard shows ALL historical players while live rankings stay fresh.
+        players = { ...players, ...top };
         if (self && typeof self === "object") players[me.id] = self;
         refresh();
       }
@@ -149,7 +163,7 @@ function startSync() {
   const syncAnswers = async () => {
     if (currentSlot < 0) return;
     try {
-      const data = await dbRead(`${P}/answers/${currentSlot}`).catch(() => null);
+      const data = await dbRead(`${P}/answers/${currentSlot % (bank?.length || 1)}`).catch(() => null);
       if (data && typeof data === "object") {
         answers = data;
         refresh();
@@ -159,8 +173,9 @@ function startSync() {
     }
   };
 
-  // Stagger: answers (need fresh for scoring) every 3 s, players (leaderboard
-  // doesn't need sub-second updates) every 10 s. Reduces total polling load.
+  // Stagger: answers (need fresh for scoring) every 2s, players (leaderboard
+  // doesn't need sub-second updates) every 8s. Faster answer sync = quicker
+  // reveal of who got it right/wrong (reduces the 3s+ lag).
   const beatAnswers = () => {
     if (!visible()) return;
     syncAnswers();
@@ -171,10 +186,11 @@ function startSync() {
     syncPlayers();
   };
 
+  fetchAllTime();
   beatPlayers();
   beatAnswers();
-  setInterval(beatAnswers, 3000);
-  setInterval(beatPlayers, 10000);
+  setInterval(beatAnswers, 2000);
+  setInterval(beatPlayers, 8000);
   document.addEventListener("visibilitychange", () => {
     if (visible()) {
       syncPlayers();
@@ -360,38 +376,43 @@ function pointsFor(elapsedMs) {
 
 async function handleAnswer(idx, q) {
   if (hasAnswered || !q) return;
+
+  // "Too late" guard: if < 3s remains on the clock, don't accept the answer.
+  // Instead show "Too late" and let the next question advance cleanly.
+  const secsLeft = (q.slotEnd - now()) / 1000;
+  if (secsLeft < 3) {
+    hasAnswered = true;
+    myAnswer = -1;
+    revealed = true;
+    lastAnswerGain = 0;
+    renderQuestion(q);
+    return;
+  }
+
   hasAnswered = true;
   myAnswer = idx;
   const at = now();
   const elapsed = Math.max(0, at - q.slotStart);
 
-  // optimistic local update
+  // optimistic local update — reveal instantly, write to Firebase fire-and-forget
   answers[me.id] = { answer: idx, at };
   refresh();
 
-  try {
-    await dbUpdate(`${P}/answers/${q.slot}/${me.id}`, { answer: idx, at });
-  } catch (e) {
+  // Answer write to the correct slot index (modulo wrap).
+  // Fire-and-forget — don't block the reveal on Firebase write latency.
+  dbUpdate(`${P}/answers/${q.realSlot}/${me.id}`, { answer: idx, at }).catch((e) => {
     console.warn("answer write failed:", e);
-  }
+  });
 
-  if (idx === q.question.correctAnswer) {
-    const gain = pointsFor(elapsed);
-    me.score += gain;
-    lastAnswerGain = gain;
-    try {
-      await dbUpdate(`${P}/players/${me.id}`, { score: me.score, lastSeen: Date.now() });
-    } catch (e) {
-      console.warn("score write failed:", e);
-    }
-  } else {
-    lastAnswerGain = 0;
-  }
-
+  // Reveal immediately — no 250ms delay, no awaiting DB writes.
   setTimeout(() => {
     revealed = true;
+    lastAnswerGain = idx === q.question.correctAnswer
+      ? Math.max(10, Math.floor(100 - (elapsed / 1000) * 5))
+      : 0;
+    if (idx === q.question.correctAnswer) me.score += lastAnswerGain;
     renderQuestion(q);
-  }, 250);
+  }, 0);
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────────
@@ -625,7 +646,7 @@ function tick() {
     hasAnswered = false;
     revealed = false;
     answers = {};
-    loadSlotAnswers(q.slot);
+    if (bank?.length) loadSlotAnswers(q.realSlot);
     maybeTopUp(q);
     renderQuestion(q);
   }
@@ -644,7 +665,7 @@ function tick() {
     tEl.classList.toggle("danger", remaining < 5000);
   }
 
-  // Time up → auto-reveal
+    // Time up (or <3s left) → auto-reveal as "Too late" without recording.
   if (remaining <= 0 && !hasAnswered) {
     myAnswer = -1;
     hasAnswered = true;
