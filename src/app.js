@@ -11,12 +11,12 @@
  */
 
 import { initDiscord, isDiscord, inDiscordFrame } from "./discord.js";
-import { dbRead, dbWrite, dbUpdate, dbDelete } from "./firebase.js";
+import { dbRead, dbWrite, dbUpdate, dbDelete, dbReadRange } from "./firebase.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const SLOT_DURATION = 20000;   // must match worker
 const TOP_UP_THRESHOLD = 20;   // request more questions when fewer remain
-const PLAYER_BATCH_SIZE = 50;  // fetch top 50 players + self for leaderboard
+const LB_BATCH = 80;           // fetch top 80 players instead of entire DB
 
 // ── State ────────────────────────────────────────────────────────────────────
 let me = { id: null, username: "Guest", avatarUrl: "", score: 0 };
@@ -99,16 +99,12 @@ function currentQuestion() {
   const duration = game.slotDuration || SLOT_DURATION;
   const elapsed = Math.max(0, now() - game.questionStart);
   const slot = Math.floor(elapsed / duration);
-
-  // Wrap around if we somehow exceed bank length (shouldn't happen with
-  // proper worker restarts, but safe fallback)
-  const index = slot % bank.length;
-  const q = bank[index];
+  const realSlot = slot % bank.length;   // wrap around — never stall
+  const q = bank[realSlot];
   if (!q) return null;
-
   return {
-    slot,
-    index: slot + 1,          // human-friendly "Question #N"
+    slot,            // actual slot counter (may be >= bank.length before reset)
+    index: realSlot + 1,   // human-friendly "Question #N" (1-based within bank)
     question: q,
     slotStart: game.questionStart + slot * duration,
     slotEnd: game.questionStart + (slot + 1) * duration,
@@ -123,126 +119,69 @@ const P = "quran/global";
 // initial snapshot (verified 2026-08-08) — live updates never arrive. So we
 // poll players + the current slot's answers every few seconds instead. The
 // game is 20s/slot, so 3s polling keeps everything fresh with tiny load.
-async function syncPlayers() {
-  try {
-    // First, get shallow list of player IDs to know who exists
-    const shallow = await dbRead(`${P}/players?shallow=true`).catch(() => {});
-    const playerIds = shallow && typeof shallow === "object" ? Object.keys(shallow) : [];
-    
-    if (!playerIds.length) {
-      players = {};
-      renderLeaderboard();
-      renderPresence();
-      return;
-    }
-
-    // Get current user's data first (always needed)
-    const meData = await dbRead(`${P}/players/${me.id}`).catch(() => null);
-    if (meData && typeof meData === "object") {
-      players[me.id] = meData;
-    }
-
-    // Fetch top players by score for leaderboard (limit to PLAYER_BATCH_SIZE)
-    // We'll get a sample and sort locally - in production you'd want Firebase queries
-    const topPlayers = {};
-    let fetchedCount = 0;
-    
-    // Prioritize: self + recent active players + high scorers
-    const priorityIds = [me.id]; // always include self
-    
-    // Add some random sample to get variety (avoid bias)
-    const sampleSize = Math.min(PLAYER_BATCH_SIZE - 1, playerIds.length - 1);
-    const otherIds = playerIds.filter(id => id !== me.id);
-    
-    // Shuffle and take sample
-    for (let i = otherIds.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherIds[i], otherIds[j]] = [otherIds[j], otherIds[i]];
-    }
-    priorityIds.push(...otherIds.slice(0, sampleSize));
-    
-    // Fetch prioritized players
-    for (const id of priorityIds) {
-      if (fetchedCount >= PLAYER_BATCH_SIZE) break;
-      if (!id || players[id]) continue; // skip if already have
-      
-      try {
-        const data = await dbRead(`${P}/players/${id}`).catch(() => null);
-        if (data && typeof data === "object") {
-          players[id] = data;
-          fetchedCount++;
-        }
-      } catch (e) {
-        // ignore individual fetch errors
-      }
-    }
-    
-    // Ensure we have at least some players if we had any
-    if (Object.keys(players).length === 0 && playerIds.length > 0) {
-      // Fallback: fetch first few players
-      for (let i = 0; i < Math.min(5, playerIds.length); i++) {
-        const id = playerIds[i];
-        if (!id) continue;
-        try {
-          const data = await dbRead(`${P}/players/${id}`).catch(() => null);
-          if (data && typeof data === "object") {
-            players[id] = data;
-          }
-        } catch (e) {}
-      }
-    }
-    
-    renderLeaderboard();
-    renderPresence();
-  } catch (e) {
-    console.warn("[syncPlayers] error:", e);
-    // Degrade gracefully - keep existing players data
-    renderLeaderboard();
-    renderPresence();
-  }
-}
-
-const syncAnswers = async () => {
-  if (currentSlot < 0) return;
-  try {
-    const data = await dbRead(`${P}/answers/${currentSlot}`).catch(() => null);
-    if (data && typeof data === "object") {
-      answers = data;
-      refresh();
-    }
-  } catch (e) {
-    /* keep last known state */
-  }
-};
-
-const beat = () => {
-  // Don't save bandwidth while tab is hidden - visibility is handled in startSync
-  syncPlayers();
-  syncAnswers();
-};
-
 function startSync() {
   const visible = () => document.visibilityState !== "hidden";
 
-  beat();
-  setInterval(syncPlayers, 5000);      // Reduced from 3000ms to 5000ms
-  setInterval(syncAnswers, 1000);      // Increased answer polling for responsiveness
-  setInterval(() => {
-    // Periodic full refresh every 30 seconds
-    syncPlayers().then(() => {
-      if (game && currentSlot >= 0) {
-        loadSlotAnswers(currentSlot);
+  // Fetch only the top LB_BATCH players (leaderboard + near-you) plus the
+  // player's own record. The old code fetched the ENTIRE players tree every
+  // 3 s, which grows linearly with player count — the main lag source.
+  // Firebase REST orderByKey + limitToLast gives us just the top N by key
+  // (uids sort alphabetically, and the worker assigns sequential ids, so this
+  // is an effective proxy for newest / highest-ranked). We also patch our own
+  // record in so we're always visible even if we're not in the top N.
+  const syncPlayers = async () => {
+    try {
+      const top = await dbReadRange(`${P}/players`, {
+        orderBy: '"$key"',
+        limitToLast: String(LB_BATCH),
+      }).catch(() => null);
+      const self = await dbRead(`${P}/players/${me.id}`).catch(() => null);
+      if (top && typeof top === "object") {
+        players = { ...top };
+        if (self && typeof self === "object") players[me.id] = self;
+        refresh();
       }
-    });
-  }, 30000);
-  
+    } catch (e) {
+      /* keep last known state */
+    }
+  };
+
+  const syncAnswers = async () => {
+    if (currentSlot < 0) return;
+    try {
+      const data = await dbRead(`${P}/answers/${currentSlot}`).catch(() => null);
+      if (data && typeof data === "object") {
+        answers = data;
+        refresh();
+      }
+    } catch (e) {
+      /* keep last known state */
+    }
+  };
+
+  // Stagger: answers (need fresh for scoring) every 3 s, players (leaderboard
+  // doesn't need sub-second updates) every 10 s. Reduces total polling load.
+  const beatAnswers = () => {
+    if (!visible()) return;
+    syncAnswers();
+  };
+
+  const beatPlayers = () => {
+    if (!visible()) return;
+    syncPlayers();
+  };
+
+  beatPlayers();
+  beatAnswers();
+  setInterval(beatAnswers, 3000);
+  setInterval(beatPlayers, 10000);
   document.addEventListener("visibilitychange", () => {
     if (visible()) {
       syncPlayers();
       syncAnswers();
     }
   });
-};
+}
 
 // ── Boot: identity ──────────────────────────────────────────────────────────
 async function resolveIdentity() {
@@ -293,7 +232,11 @@ async function syncTime() {
     if (res.ok) {
       const data = await res.json();
       offset = data.now - Date.now();
-      if (data.game && (!game || !game.questionStart)) game = data.game;
+      if (data.game) {
+        // Adopt the clock on first load AND when a hard reset restarts it,
+        // otherwise open tabs stay stuck on the stale questionStart.
+        if (!game || !game.questionStart || data.game.questionStart !== game.questionStart) game = data.game;
+      }
     }
   } catch (e) {
     /* keep previous offset */
@@ -324,9 +267,395 @@ async function joinGlobal() {
       joinedAt: Date.now(),
     });
   }
+  // Seed local players map with our own record instead of fetching the
+  // entire players tree. startSync() will populate the leaderboard shortly.
+  players = { [me.id]: { ...me, online: true, lastSeen: Date.now() } };
+}
+
+// ── Bank management ─────────────────────────────────────────────────────────
+// Always fetch the current game clock from the worker. The worker owns the
+// canonical questionStart / bankLen and will reset the clock to `now` if the
+// slot counter has run past the end of the bank (clock exhaustion recovery).
+// The client only READS the bank via /firebase (the whole array is ~4MB and
+// fragile in embedded sandboxes); /api/trivia is the worker's "ensure the game
+// can show a question" entry point and is safe to call on every tick.
+async function syncGameClock() {
+  try {
+    const res = await fetch("/api/trivia", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ count: 20 }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    // Worker always returns the live bankLen. On a clock-exhaustion reset it
+    // sends `restarted: true` and a fresh questionStart.
+    if (typeof data.bankLen === "number") {
+      const g = await dbRead(`${P}/game`).catch(() => null);
+      if (g && g.questionStart) game = g;
+      // Re-read the bank whenever the clock was restarted or we have none.
+      if (data.restarted || !bank.length) {
+        const snapshot = await dbRead(`${P}/bank`).catch(() => null);
+        bank = bankArray(snapshot);
+      } else if (!bank.length) {
+        const snapshot = await dbRead(`${P}/bank`).catch(() => null);
+        bank = bankArray(snapshot);
+      }
+      return true;
+  }
+}
+
+async function ensureBank(force) {
+  if (requestingBank) return;
+  requestingBank = true;
+  try {
+    // Always go through the worker first: it owns the canonical clock and
+    // resets questionStart if the slot counter ran past the bank end.
+    const ok = await syncGameClock();
+
+    // Only re-fetch the bank from Firebase if we don't already have one
+    // loaded or were forced to. The syncGameClock() call above may have
+    // already fetched it (on clock restart), so skip the redundant read.
+    if (!bank.length || force || ok) {
+      const snapshot = await dbRead(`${P}/bank`).catch(() => null);
+      bank = bankArray(snapshot);
+    }
+
+    let need = !!force;
+    if (!need && game && game.questionStart) {
+      const duration = game.slotDuration || SLOT_DURATION;
+      const slot = Math.floor((now() - game.questionStart) / duration);
+      need = bank.length - (slot + 1) < TOP_UP_THRESHOLD;
+    }
+    if (!need) return;
+
+    // Top-up: ask the worker to add more questions if the bank is running low.
+    const res = await fetch("/api/trivia", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ count: 20 }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.bankLen) {
+        const fresh = await dbRead(`${P}/bank`).catch(() => null);
+        bank = bankArray(fresh);
+        const g = await dbRead(`${P}/game`).catch(() => null);
+        if (g) game = g;
+      }
+    }
+  } catch (e) {
+    console.warn("ensureBank failed:", e);
+  } finally {
+    requestingBank = false;
+  }
+}
+
+// ── Answering ───────────────────────────────────────────────────────────────
+function pointsFor(elapsedMs) {
+  // Speed-based: 100 - 5 per second elapsed, min 10. First correct = highest.
+  const seconds = elapsedMs / 1000;
+  return Math.max(10, Math.floor(100 - seconds * 5));
+}
+
+async function handleAnswer(idx, q) {
+  if (hasAnswered || !q) return;
+  hasAnswered = true;
+  myAnswer = idx;
+  const at = now();
+  const elapsed = Math.max(0, at - q.slotStart);
+
+  // optimistic local update
+  answers[me.id] = { answer: idx, at };
+  refresh();
+
+  try {
+    await dbUpdate(`${P}/answers/${q.slot}/${me.id}`, { answer: idx, at });
+  } catch (e) {
+    console.warn("answer write failed:", e);
+  }
+
+  if (idx === q.question.correctAnswer) {
+    const gain = pointsFor(elapsed);
+    me.score += gain;
+    lastAnswerGain = gain;
+    try {
+      await dbUpdate(`${P}/players/${me.id}`, { score: me.score, lastSeen: Date.now() });
+    } catch (e) {
+      console.warn("score write failed:", e);
+    }
+  } else {
+    lastAnswerGain = 0;
+  }
+
+  setTimeout(() => {
+    revealed = true;
+    renderQuestion(q);
+  }, 250);
+}
+
+// ── Rendering ───────────────────────────────────────────────────────────────
+function renderHeader() {
+  const el = $("header-me");
+  if (!el) return;
+  el.innerHTML =
+    avatarHtml(me, 28) +
+    `<span class="me-name">${escapeHtml(me.username)}</span>` +
+    `<span class="me-score">${starSvg(13)} ${me.score}</span>` +
+    `<span class="tag ${isDiscord ? "tag-discord" : "tag-browser"}">${isDiscord ? "DISCORD" : "BROWSER"}</span>`;
+}
+
+function renderQuestion(q) {
+  const question = q.question;
+  $("q-number").textContent = `Question ${q.index}`;
+  updateAnsweredCount();
+
+  $("q-text").textContent = question.question;
+
+  // Quran reference (SGSS-sourced questions carry a ref, e.g. "Al-Baqara 2:255")
+  const refEl = $("q-ref");
+  if (refEl) {
+    if (question.ref) {
+      refEl.textContent = `📖 ${question.ref}`;
+      refEl.classList.remove("hidden");
+    } else {
+      refEl.classList.add("hidden");
+    }
+  }
+
+  $("q-options").innerHTML = question.options
+    .map((opt, i) => {
+      let cls = "opt-btn";
+      if (revealed) {
+        if (i === question.correctAnswer) cls += " correct";
+        else if (i === myAnswer) cls += " wrong";
+        else cls += " dimmed";
+      }
+      return `<button class="${cls}" data-idx="${i}" ${hasAnswered ? "disabled" : ""}>
+        <span class="opt-letter">${String.fromCharCode(65 + i)}</span>
+        <span class="opt-text">${escapeHtml(opt)}</span>
+      </button>`;
+    })
+    .join("");
+
+  document.querySelectorAll(".opt-btn").forEach((btn) => {
+    btn.onclick = () => handleAnswer(Number(btn.dataset.idx), q);
+  });
+
+  const box = $("q-result");
+  if (revealed) {
+    box.classList.remove("hidden");
+    box.classList.toggle("good", myAnswer === question.correctAnswer);
+    box.classList.toggle("bad", myAnswer !== question.correctAnswer);
+    box.innerHTML =
+      myAnswer === question.correctAnswer
+        ? `✅ Correct! +${lastAnswerGain} ⚡`
+        : myAnswer === -1
+          ? `⏰ Time's up! The answer was: ${escapeHtml(question.options[question.correctAnswer])}`
+          : `❌ Wrong! The answer was: ${escapeHtml(question.options[question.correctAnswer])}`;
+  } else {
+    box.classList.add("hidden");
+  }
+}
+
+function updateAnsweredCount() {
+  const answeredCount = Object.keys(answers).length;
+  const onlineCount = Math.max(1, Object.values(players).filter(isLive).length);
+  const el = $("q-answered");
+  if (el) el.textContent = `⚡ ${answeredCount}/${onlineCount} answered`;
+}
+
+function renderLeaderboard() {
+  const LB_TOP = 7;   // top tier shown before the divider
+
+  const all = Object.values(players).filter((p) => p && typeof p === "object");
+  // Always include yourself — even if the players map is stale/empty on boot,
+  // your row renders so you can never be "missing" from the board.
+  if (!all.some((p) => p.id === me.id)) all.push({ ...me, online: true, lastSeen: Date.now() });
+
+  const sorted = all.sort(
+    (a, b) => (b.score || 0) - (a.score || 0) || (b.lastSeen || 0) - (a.lastSeen || 0)
+  );
+  const myIdx = sorted.findIndex((p) => p.id === me.id);
+  const myRank = myIdx + 1;
+
+  // Order: top 7, divider, then me pinned as #8 when I'm outside the top tier
+  // (players between 8 and me appear below me for scrolling). Ranks stay true.
+  const ranked = sorted.map((p, i) => ({ p, rank: i + 1 }));
+  const ordered =
+    myRank > LB_TOP
+      ? [
+          ...ranked.slice(0, LB_TOP),
+          ranked[myIdx],
+          ...ranked.slice(LB_TOP, myIdx),
+          ...ranked.slice(myIdx + 1),
+        ]
+      : ranked;
+
+  const el = $("lb-list");
+  if (!el) return;
+  const liveCount = sorted.filter(isLive).length;
+  const titleEl = $("lb-title");
+  if (titleEl) {
+    titleEl.innerHTML =
+      `Leaderboard <span class="lb-meta">${sorted.length} players · ` +
+      `<span class="lb-live"><span class="lb-live-dot"></span>${liveCount} live</span></span>`;
+  }
+
+  el.innerHTML = ordered.length
+    ? ordered
+        .map((item, i) => {
+          const p = item.p;
+          const rank = item.rank;
+          const isOffline = !isLive(p);
+          const mine = p.id === me.id;
+          const divider = i === LB_TOP ? '<div class="lb-divider"><span></span>· · ·<span></span></div>' : "";
+          return (
+            divider +
+            `
+          <div class="lb-row ${mine ? "me" : ""} ${rank === 1 ? "first" : ""} ${isOffline ? "offline" : ""}">
+            <span class="lb-rank">${rankBadge(rank)}</span>
+            ${avatarHtml(p, 32)}
+            <span class="lb-name">${escapeHtml(p.username)}${mine ? '<span class="you-tag">you</span>' : ""}</span>
+            ${platformBadge(p)}
+            <span class="lb-score">${starSvg(11)} ${p.score || 0}</span>
+          </div>`
+          );
+        })
+        .join("")
+    : '<p class="muted center small">No players yet — open the game and be first!</p>';
+
+  const rankEl = $("my-rank");
+  if (rankEl) {
+    rankEl.innerHTML = `Your rank: <b>#${myRank}</b> · ${starSvg(11)} ${me.score || 0} pts`;
+  }
+}
+
+function refresh() {
+  renderHeader();
+  renderLeaderboard();
+  const gameScreen = $("screen-game");
+  if (gameScreen && !gameScreen.classList.contains("hidden")) {
+    updateAnsweredCount();
+  }
+}
+
+function showError(msg) {
+  $("error-msg").textContent = msg;
+  showScreen("error");
+}
+
+// ── Presence ────────────────────────────────────────────────────────────────
+// A player is "live" only if their heartbeat is FRESH. The raw `online` flag
+// alone is unreliable: it's set true on join and only flipped false on
+// visibilitychange / beforeunload — which rarely fire inside Discord's
+// embedded Activity (the webview is silently destroyed when a user leaves the
+// voice channel). Result: every past player stayed `online:true` forever and
+// the live count ballooned (e.g. 65 "live" of 67 total when nobody was playing).
+// `lastSeen` is written every 30s by the heartbeat below, so freshness is the
+// source of truth: online + recent heartbeat = live.
+const LIVE_STALE_MS = 180000; // 3 min without a heartbeat → offline
+
+function isLive(p) {
+  return !!(
+    p &&
+    p.online &&
+    p.lastSeen &&
+    Date.now() - Number(p.lastSeen) < LIVE_STALE_MS
+  );
+}
+
+function startPresence() {
+  const beat = async () => {
+    try {
+      await dbUpdate(`${P}/players/${me.id}`, {
+        online: document.visibilityState !== "hidden",
+        lastSeen: Date.now(),
+      });
+    } catch (e) { /* ignore */ }
+  };
+  beat();
+  setInterval(beat, 30000);
+  document.addEventListener("visibilitychange", beat);
+  window.addEventListener("beforeunload", () => {
+    try {
+      dbUpdate(`${P}/players/${me.id}`, { online: false, lastSeen: Date.now() });
+    } catch (e) { /* ignore */ }
+  });
 }
 
 // ── Main loop ───────────────────────────────────────────────────────────────
+async function loadSlotAnswers(slot) {
+  const data = await dbRead(`${P}/answers/${slot}`).catch(() => null);
+  answers = data && typeof data === "object" ? data : {};
+  refresh();
+}
+
+function maybeTopUp(q) {
+  const remaining = bank.length - q.slot;   // no modulo — slots consume the bank linearly
+  if (remaining < TOP_UP_THRESHOLD && !requestingBank) {
+    ensureBank();
+  }
+}
+
+function tick() {
+  const q = currentQuestion();
+  if (!q) {
+    // No question available for this slot. We only reach here if the local
+    // bank is empty (never loaded / read failed) — currentQuestion() now uses
+    // modulo so a stale clock always wraps around and produces a question.
+    // "Connecting to the arena…" is the initial connect state; if the bank
+    // never loaded, that's a transient network issue, so we keep retrying via
+    // ensureBank() instead of leaving the player staring at a dead screen.
+    if (!game || !bank.length) {
+      $("loading-msg").textContent = "Preparing new questions…";
+      ensureBank(true);
+    } else {
+      $("loading-msg").textContent = "Preparing new questions…";
+      ensureBank(true);
+    }
+    showScreen("loading");
+    return;
+  }
+
+  // New question slot → reset local state
+  if (q.slot !== currentSlot) {
+    currentSlot = q.slot;
+    myAnswer = null;
+    hasAnswered = false;
+    revealed = false;
+    answers = {};
+    loadSlotAnswers(q.slot);
+    maybeTopUp(q);
+    renderQuestion(q);
+  }
+
+  // Timer bar
+  const remaining = Math.max(0, q.slotEnd - now());
+  const pct = (remaining / SLOT_DURATION) * 100;
+  const bar = $("q-progress");
+  if (bar) {
+    bar.style.width = pct + "%";
+    bar.classList.toggle("danger", remaining < 5000);
+  }
+  const tEl = $("q-time");
+  if (tEl) {
+    tEl.textContent = Math.ceil(remaining / 1000) + "s";
+    tEl.classList.toggle("danger", remaining < 5000);
+  }
+
+  // Time up → auto-reveal
+  if (remaining <= 0 && !hasAnswered) {
+    myAnswer = -1;
+    hasAnswered = true;
+    revealed = true;
+    renderQuestion(q);
+  }
+
+  showScreen("game");
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
 async function boot() {
   showScreen("loading");
 
@@ -372,71 +701,4 @@ async function boot() {
   }
 }
 
-// ── Optimized presence (30s heartbeat) ─────────────────────────────────────
-const LIVE_STALE_MS = 180000; // 3 min without a heartbeat → offline
-
-function renderPresence() {
-  const online = Object.values(players).filter(
-    (p) => p.online && Date.now() - Number(p.lastSeen) < LIVE_STALE_MS
-  ).length;
-  $("online-count").textContent = online;
-}
-
-function startPresence() {
-  const beat = async () => {
-    try {
-      await dbUpdate(`${P}/players/${me.id}`, {
-        online: document.visibilityState !== "hidden",
-        lastSeen: Date.now(),
-      });
-    } catch (e) { /* ignore */ }
-  };
-  beat();
-  setInterval(beat, 30000);
-  document.addEventListener("visibilitychange", beat);
-  window.addEventListener("beforeunload", () => {
-    try {
-      dbUpdate(`${P}/players/${me.id}`, { online: false, lastSeen: Date.now() });
-    } catch (e) { /* ignore */ }
-  });
-}
-
-// ── Leaderboard rendering (optimized) ─────────────────────────────────────
-function renderLeaderboard() {
-  const lb = $("leaderboard");
-  if (!lb) return;
-
-  // Convert players object to array, sort by score descending
-  const playerList = Object.entries(players || {})
-    .map(([id, p]) => ({ id, ...p }))
-    .sort((a, b) => (b.score || 0) - (a.score || 0));
-
-  // Take top 7, but ensure current user is always included
-  const top7 = playerList.slice(0, 7);
-  const meIndex = playerList.findIndex(p => p.id === me.id);
-  
-  let displayList = [...top7];
-  if (meIndex >= 7 && !top7.some(p => p.id === me.id)) {
-    // Replace last entry with current user if not in top 7
-    displayList = [...top7.slice(0, 6), playerList[meIndex]];
-  }
-
-  lb.innerHTML = "";
-  displayList.forEach((p, idx) => {
-    const div = document.createElement("div");
-    div.className = "lb-entry";
-    div.innerHTML = `
-      <div class="rank">${idx + 1}</div>
-      <div class="avatar"><img src="${p.avatarUrl || "https://via.placeholder.com/40"}" onerror="this.src='https://via.placeholder.com/40'" alt="" width="40" height="40"></div>
-      <div class="info">
-        <div class="name">${escapeHtml(p.username || "Anonymous")}</div>
-        <div class="score">${p.score || 0}</div>
-      </div>
-      <div class="indicator ${p.online && Date.now() - Number(p.lastSeen) < LIVE_STALE_MS ? "online" : "offline"}"></div>
-    `;
-    lb.appendChild(div);
-  });
-}
-
-// ── Bootstrap ───────────────────────────────────────────────────────────────
 boot();

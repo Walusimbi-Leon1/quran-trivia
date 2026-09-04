@@ -51,6 +51,16 @@ export function dbRead(path) {
   return fbRequest(path, "GET");
 }
 
+// Lightweight range queries via Firebase REST
+// supports Firebase's orderByValue + limitToFirst / limitToLast params.
+// e.g. dbReadRange('players', { limitToLast: 80 }) → top 80 by key.
+// The Cloudflare Worker proxy forwards url.search unchanged.
+export function dbReadRange(path, params) {
+  const qs = new URLSearchParams();
+  for (const k in params) qs.set(k, params[k]);
+  return fbRequest(path + "?" + qs.toString(), "GET");
+}
+
 export function dbWrite(path, data) {
   return fbRequest(path, "PUT", data);
 }
